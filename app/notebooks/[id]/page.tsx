@@ -27,6 +27,8 @@ import {
   RefreshCw,
   BrainCircuit,
   Trash2,
+  HardDrive,
+  ClipboardList,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -790,25 +792,11 @@ export default function NotebookDetail() {
             >
               <PanelLeftClose className="w-4 h-4" />
             </button>
-            <div className="w-6 h-6 bg-gray-800 rounded flex items-center justify-center">
-              <span className="text-xs">📓</span>
-            </div>
-            <span className="text-sm">Untitled notebook</span>
+
           </div>
 
           <div className="flex items-center gap-2">
-            <button className="px-4 py-1.5 bg-white text-gray-900 rounded-full text-sm hover:bg-gray-100">
-              Share notebook
-            </button>
-            <button className="p-2 hover:bg-gray-800 rounded-lg">
-              <Share2 className="w-4 h-4" />
-            </button>
-            <button className="p-2 hover:bg-gray-800 rounded-lg">
-              <Download className="w-4 h-4" />
-            </button>
-            <button className="p-2 hover:bg-gray-800 rounded-lg">
-              <SettingsIcon className="w-4 h-4" />
-            </button>
+
             <button
               className="flex items-center gap-1.5 px-2 py-1 hover:bg-gray-800 rounded text-xs text-gray-400 disabled:opacity-50"
               onClick={handleDownloadPdf}
@@ -1281,13 +1269,7 @@ export default function NotebookDetail() {
                 )}
               </div>
 
-              {/* Add Note Button Footer */}
-              <div className="p-6 flex justify-center relative mt-auto">
-                <button className="bg-white text-gray-900 px-6 py-3 rounded-full text-sm font-medium flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors shadow-lg w-auto min-w-[140px]">
-                  <StickyNote className="w-4 h-4" />
-                  Add note
-                </button>
-              </div>
+
             </>
           ) : (
             <div className="flex flex-col h-full bg-[#1e1e1e]">
@@ -1890,14 +1872,6 @@ export default function NotebookDetail() {
                       <span className="w-2 h-2 bg-red-600 rounded-full"></span>
                       Websites
                     </span>
-                  </button>
-                  <button className="flex items-center gap-2 px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-full transition-colors">
-                    <HardDrive className="w-5 h-5" />
-                    <span>Drive</span>
-                  </button>
-                  <button className="flex items-center gap-2 px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-full transition-colors">
-                    <ClipboardList className="w-5 h-5" />
-                    <span>Copied text</span>
                   </button>
                 </div>
               </div>
