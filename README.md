@@ -13,16 +13,19 @@ By leveraging **Retrieval-Augmented Generation (RAG)**, large language models, a
 <br>
 
 **1. Main Chat Interface & Interactive Flashcards**
-![Main Interface with Flashcards](./public/screenshots/flashcards_view.png)
+![Main Interface with Flashcards](./public/screenshots/flashcards.png)
 
 **2. RAG Source Selection & Podcasts**
-![Document Chat & Audio Podcasts](./public/screenshots/podcast_view.png)
+![Document Chat & Audio Podcasts](./public/screenshots/podcast_gen.png)
 
 **3. Hierarchical Mind Map Generation**
-![Mind Map Generation](./public/screenshots/mindmap_view.png)
+![Mind Map Generation](./public/screenshots/mindmap.png)
 
 **4. Document Upload Overlay**
-![Document Upload Overlay](./public/screenshots/upload_view.png)
+![Document Upload Overlay](./public/screenshots/add_source.png)
+
+**5. Clean Notebook View**
+![Notebook View](./public/screenshots/notebook.png)
 
 </details>
 
