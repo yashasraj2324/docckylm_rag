@@ -8,10 +8,6 @@ By leveraging **Retrieval-Augmented Generation (RAG)**, large language models, a
 
 ## 📸 Showcase
 
-<details>
-<summary><b>Click to expand screenshots</b></summary>
-<br>
-
 **1. Main Chat Interface & Interactive Flashcards**
 ![Main Interface with Flashcards](./public/screenshots/flashcards.png)
 
@@ -27,7 +23,6 @@ By leveraging **Retrieval-Augmented Generation (RAG)**, large language models, a
 **5. Clean Notebook View**
 ![Notebook View](./public/screenshots/notebook.png)
 
-</details>
 
 ---
 
