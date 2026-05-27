@@ -1,0 +1,9 @@
+flask>=3.1,<4.0
+python-dotenv
+supabase
+langchain-qdrant
+qdrant-client
+langchain-nvidia-ai-endpoints
+langchain-sarvamcloud
+pypandoc
+markitdown

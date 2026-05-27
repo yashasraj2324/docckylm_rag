@@ -1,0 +1,68 @@
+== DOC ==
+Sarvam AI Text-to-Speech.
+
+Converts text to speech audio using the Bulbul v3 model. Supports 11
+Indian languages with 30+ voice options. Returns base64-encoded WAV audio.
+
+Setup:
+    Install `langchain-sarvamcloud` and set the environment variable:
+
+    ```bash
+    pip install -U langchain-sarvamcloud
+    export SARVAM_API_KEY="your-api-key"
+    ```
+
+Supported languages (11): hi-IN, en-IN, ta-IN, te-IN, kn-IN, ml-IN,
+    mr-IN, gu-IN, pa-IN, bn-IN, od-IN.
+
+Example:
+    ```python
+    import base64
+    from langchain_sarvamcloud import SarvamTTS
+
+    tts = SarvamTTS(speaker="shubh", pace=1.0)
+    result = tts.synthesize(
+        "नमस्ते, मैं सर्वम AI हूँ।",
+        target_language_code="hi-IN",
+    )
+
+    audio_bytes = base64.b64decode(result["audios"][0])
+    with open("output.wav", "wb") as f:
+        f.write(audio_bytes)
+    ```
+== SIG ==
+(self, /, **data: 'Any') -> 'None'
+== METHODS ==
+__copy__ (self) -> 'Self'
+__deepcopy__ (self, memo: 'dict[int, Any] | None' = None) -> 'Self'
+__delattr__ (self, item: 'str') -> 'Any'
+__eq__ (self, other: 'Any') -> 'bool'
+__getattr__ (self, item: 'str') -> 'Any'
+__getstate__ (self) -> 'dict[Any, Any]'
+__init__ (self, /, **data: 'Any') -> 'None'
+__iter__ (self) -> 'TupleGenerator'
+__pretty__ (self, fmt: 'Callable[[Any], Any]', **kwargs: 'Any') -> 'Generator[Any]'
+__replace__ (self, **changes: 'Any') -> 'Self'
+__repr__ (self) -> 'str'
+__repr_args__ (self) -> '_repr.ReprArgs'
+__repr_name__ (self) -> 'str'
+__repr_recursion__ (self, object: 'Any') -> 'str'
+__repr_str__ (self, join_str: 'str') -> 'str'
+__rich_repr__ (self) -> 'RichReprResult'
+__setattr__ (self, name: 'str', value: 'Any') -> 'None'
+__setstate__ (self, state: 'dict[Any, Any]') -> 'None'
+__str__ (self) -> 'str'
+_calculate_keys (self, *args: 'Any', **kwargs: 'Any') -> 'Any'
+_copy_and_set_values (self, *args: 'Any', **kwargs: 'Any') -> 'Any'
+_iter (self, *args: 'Any', **kwargs: 'Any') -> 'Any'
+_setattr_handler (self, name: 'str', value: 'Any') -> 'Callable[[BaseModel, str, Any], None] | None'
+copy (self, *, include: 'AbstractSetIntStr | MappingIntStrAny | None' = None, exclude: 'AbstractSetIntStr | MappingIntStrAny | None' = None, update: 'Dict[str, Any] | None' = None, deep: 'bool' = False) -> 'Self'
+dict (self, *, include: 'IncEx | None' = None, exclude: 'IncEx | None' = None, by_alias: 'bool' = False, exclude_unset: 'bool' = False, exclude_defaults: 'bool' = False, exclude_none: 'bool' = False) -> 'Dict[str, Any]'
+json (self, *, include: 'IncEx | None' = None, exclude: 'IncEx | None' = None, by_alias: 'bool' = False, exclude_unset: 'bool' = False, exclude_defaults: 'bool' = False, exclude_none: 'bool' = False, encoder: 'Callable[[Any], Any] | None' = PydanticUndefined, models_as_dict: 'bool' = PydanticUndefined, **dumps_kwargs: 'Any') -> 'str'
+model_copy (self, *, update: 'Mapping[str, Any] | None' = None, deep: 'bool' = False) -> 'Self'
+model_dump (self, *, mode: "Literal['json', 'python'] | str" = 'python', include: 'IncEx | None' = None, exclude: 'IncEx | None' = None, context: 'Any | None' = None, by_alias: 'bool | None' = None, exclude_unset: 'bool' = False, exclude_defaults: 'bool' = False, exclude_none: 'bool' = False, exclude_computed_fields: 'bool' = False, round_trip: 'bool' = False, warnings: "bool | Literal['none', 'warn', 'error']" = True, fallback: 'Callable[[Any], Any] | None' = None, serialize_as_any: 'bool' = False) -> 'dict[str, Any]'
+model_dump_json (self, *, indent: 'int | None' = None, ensure_ascii: 'bool' = False, include: 'IncEx | None' = None, exclude: 'IncEx | None' = None, context: 'Any | None' = None, by_alias: 'bool | None' = None, exclude_unset: 'bool' = False, exclude_defaults: 'bool' = False, exclude_none: 'bool' = False, exclude_computed_fields: 'bool' = False, round_trip: 'bool' = False, warnings: "bool | Literal['none', 'warn', 'error']" = True, fallback: 'Callable[[Any], Any] | None' = None, serialize_as_any: 'bool' = False) -> 'str'
+model_post_init (self: 'BaseModel', context: 'Any', /) -> 'None'
+synthesize (self, text: 'str', *, target_language_code: 'str', speaker: 'str | None' = None, pace: 'float | None' = None, speech_sample_rate: 'int | None' = None) -> 'dict[str, Any]'
+synthesize_to_bytes (self, text: 'str', *, target_language_code: 'str', speaker: 'str | None' = None, pace: 'float | None' = None) -> 'bytes'
+validate_environment (self) -> 'Self'
