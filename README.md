@@ -40,6 +40,7 @@ The project is split into two heavily decoupled layers: a React-based frontend a
 
 ### Backend (AI & Data Pipeline)
 - **Server**: **Flask** (Python 3.10+) serving a robust RESTful API.
+- **AI Models**: **NVIDIA API** powers the Large Language Models (LLMs), Text Embeddings, and semantic Document Reranking.
 - **Primary Database**: **Supabase (PostgreSQL)** stores user data, notebook metadata, chat histories, flashcard decks, and mind map structures.
 - **Object Storage**: **Supabase Storage** securely hosts uploaded PDFs and generated podcast MP3s.
 - **Vector Database**: **Qdrant** stores and indexes document embeddings for ultra-fast semantic search.
@@ -73,8 +74,8 @@ QDRANT_API_KEY=your_qdrant_api_key
 # --- SARVAM AI ---
 SARVAM_API_KEY=your_sarvam_api_subscription_key
 
-# --- LLM PROVIDER (OpenAI/Gemini/Anthropic depending on your setup) ---
-OPENAI_API_KEY=your_llm_api_key
+# --- NVIDIA API (LLM, Embeddings, Reranker) ---
+NVIDIA_API_KEY=your_nvidia_api_key
 ```
 
 ### Step 2: Backend Setup (Python/Flask)
