@@ -61,8 +61,9 @@ The project is split into two heavily decoupled layers: a React-based frontend a
 ### Backend (AI & Data Pipeline)
 - **Server**: **Flask** (Python 3.10+) serving a robust RESTful API.
 - **AI Models**: **NVIDIA API** powers the Large Language Models (LLMs), Text Embeddings, and semantic Document Reranking.
-- **Primary Database**: **Supabase (PostgreSQL)** stores user data, notebook metadata, chat histories, flashcard decks, and mind map structures.
-- **Object Storage**: **Supabase Storage** securely hosts uploaded PDFs and generated podcast MP3s.
+- **Primary Database**: **MongoDB** stores notebook metadata, chat histories, flashcard decks, and mind map structures as BSON documents.
+- **Object Storage**: **GridFS** stores uploaded PDFs and generated podcast MP3s in chunked collections.
+- **Cache & Queue**: **Redis** provides response caching for RAG queries and cache invalidation on source changes.
 - **Vector Database**: **Qdrant** stores and indexes document embeddings for ultra-fast semantic search.
 - **Audio Engine**: **Sarvam AI API** handles the text-to-speech generation.
 
@@ -75,21 +76,24 @@ Follow these steps to run the complete stack on your local machine.
 ### Prerequisites
 1. **Node.js** (v18 or higher)
 2. **Python** (v3.10 or higher)
-3. A **Supabase** account (Create a new project to get your Project URL and Service Role Key).
-4. A **Qdrant** instance (Local docker container or Qdrant Cloud).
-5. A **Sarvam AI** API Key (For podcast generation).
+3. A **MongoDB** instance (MongoDB Atlas free M0 tier or local Docker).
+4. A **Redis** instance (local Docker or Upstash free tier).
+5. A **Qdrant** instance (Local docker container or Qdrant Cloud).
+6. A **Sarvam AI** API Key (For podcast generation).
 
 ### Step 1: Environment Variables
 Create a `.env` (or `.env.local`) file in the root of your project. You will need to configure the following keys:
 
 ```ini
-# --- SUPABASE ---
-# SUPABASE_URI accepts either the REST URL (https://<project-ref>.supabase.co)
-# or the Postgres connection string (postgresql://...@db.<project-ref>.supabase.co:5432/postgres)
-SUPABASE_URI=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-# Optional: override the default storage bucket name ("notebook-sources")
-# SUPABASE_STORAGE_BUCKET=notebook-sources
+# --- MONGODB ---
+# Connection string for MongoDB Atlas or local instance
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/docckylm
+MONGODB_DB=docckylm
+
+# --- REDIS ---
+REDIS_URL=redis://localhost:6379/0
+
+# --- SINGLE-USER DEMO ---
 # A fixed UUID for the single-user demo. Generate one with:
 #   python -c "import uuid; print(uuid.uuid4())"
 DEMO_USER_ID=your_fixed_demo_user_uuid
@@ -150,7 +154,7 @@ The application will now be running. Open `http://localhost:3000` in your browse
 │   │   ├── prompt.py           # Podcast dialogue generation prompts
 │   │   └── script_gen.py       # LLM call to write the podcast script
 │   ├── db/                     # Database wrapper clients
-│   │   ├── base.py             # Main Supabase DB client class
+│   │   ├── base.py             # Main Database client class (MongoDB + GridFS)
 │   │   ├── flashcards.py       # CRUD operations for Flashcards
 │   │   ├── mindmaps.py         # CRUD operations for Mind Maps
 │   │   ├── notebooks.py        # CRUD operations for Notebook Workspaces
@@ -179,6 +183,6 @@ The application will now be running. Open `http://localhost:3000` in your browse
 
 ## 🔒 Security & Performance Considerations
 
-- **Secure Deletion**: The system is built with robust hard-delete functionality. Deleting a notebook instantly purges its associated vectors from Qdrant, its PDFs/MP3s from Supabase Storage, and its metadata from the Supabase relational database.
+- **Secure Deletion**: The system is built with robust hard-delete functionality. Deleting a notebook instantly purges its associated vectors from Qdrant, its PDFs/MP3s from GridFS, and its metadata from MongoDB.
 - **Chunked Processing**: To bypass strict character limits imposed by third-party TTS engines (like Sarvam AI's 500-character limit), the backend employs intelligent regex-based text chunking, ensuring seamless audio generation without dropping sentences.
 - **Optimized UI**: The Next.js frontend uses lazy loading and optimized React state management to ensure the chat interface and heavily animated components remain smooth even when handling large RAG contexts.
