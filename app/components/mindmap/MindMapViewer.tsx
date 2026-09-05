@@ -26,7 +26,7 @@ const nodeHeight = 50;
 const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = "LR") => {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  
+
   const isHorizontal = direction === "LR";
   dagreGraph.setGraph({ rankdir: direction });
 
@@ -45,8 +45,6 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = "LR") => 
     node.targetPosition = isHorizontal ? Position.Left : Position.Top;
     node.sourcePosition = isHorizontal ? Position.Right : Position.Bottom;
 
-    // We are shifting the dagre node position (anchor=center center) to the top left
-    // so it matches the React Flow node anchor point (top left).
     node.position = {
       x: nodeWithPosition.x - nodeWidth / 2,
       y: nodeWithPosition.y - nodeHeight / 2,
@@ -71,9 +69,9 @@ function parseTreeToElements(root: TreeNode): { nodes: Node[], edges: Edge[] } {
       position: { x: 0, y: 0 },
       type: "default",
       style: {
-        background: "#1E1E1E",
-        color: "#fff",
-        border: "1px solid #333",
+        background: "#171717",
+        color: "#FFFFFF",
+        border: "1px solid #2563EB",
         borderRadius: "8px",
         padding: "10px",
         fontSize: "14px",
@@ -88,10 +86,10 @@ function parseTreeToElements(root: TreeNode): { nodes: Node[], edges: Edge[] } {
         source: parentId,
         target: id,
         animated: true,
-        style: { stroke: "#555" },
+        style: { stroke: "#2563EB" },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: "#555",
+          color: "#2563EB",
         },
       });
     }
@@ -138,7 +136,7 @@ export default function MindMapViewer({ data }: MindMapViewerProps) {
         colorMode="dark"
         minZoom={0.2}
       >
-        <Background color="#333" gap={16} />
+        <Background color="#262626" gap={16} />
         <Controls />
       </ReactFlow>
     </div>
