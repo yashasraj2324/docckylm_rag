@@ -12,6 +12,7 @@ import threading
 from uuid import uuid4
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -40,6 +41,15 @@ Database().list_notebooks()
 print("Connected to MongoDB successfully")
 
 app = FastAPI(title="AI Notebooks API")
+
+# CORS — allow the Next.js dev server (port 3000) and Vercel previews
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 thread_local = threading.local()
 
