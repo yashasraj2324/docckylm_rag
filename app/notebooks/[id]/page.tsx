@@ -37,7 +37,7 @@ import {
   getSources,
   deleteSource,
   uploadSource,
-  addWebsiteSource,
+  addWehsiteSource,
   addSearchSource,
   getMessages,
   streamChat,
@@ -60,8 +60,56 @@ import {
 } from "@/lib/api";
 import MindMapViewer from "@/app/components/mindmap/MindMapViewer";
 
-// Placeholder — the full file content is 87KB. The color replacements
-// have been applied (273 replacements: gray-900→ink, gray-800→ink-soft,
-// blue-600→azure, red-400→gold-dark, purple-600→azure, etc.).
-// This file needs to be pushed via git push or a different method due to size.
-// See /scratch/work/page_full.txt for the complete redesigned content.
+type RightSidebarView = "none" | "flashcards" | "sources";
+
+function MessageCitations({ citations }: { citations: string[] }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  if (!citations || citations.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-paper-dark bg-ink-soft/50 hover:bg-ink-soft rounded-lg transition-colors border border-ink-border/50"
+      >
+        <FileText className="w-3.5 h-3.5" />
+        <span>
+          {citations.length} Source{citations.length === 1 ? "" : "s"}
+        </span>
+        <ChevronDown
+          className={`w-3.5 h-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {isOpen && (
+        <div className="mt-2 space-y-1.5 p-2 bg-ink-soft/30 rounded-lg border border-ink-border/50">
+          {citations.map((src, si) => (
+            <div
+              key={si}
+              className="flex items-start gap-2 text-xs text-paper-dark"
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-azure-light mt-1.5 shrink-0" />
+              <span className="leading-relaxed">{src}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface FlashcardDeck {
+  id: string;
+  topic: string;
+  difficulty: string;
+  cards: Flashcard[];
+  isGenerating: boolean;
+  createdAt: number;
+}
+
+export default function NotebookDetail() {
+  const { id } = useParams() as { id: string };
+  const router = useRouter();
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const`
