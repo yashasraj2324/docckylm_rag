@@ -1,5 +1,4 @@
-# Re-export SupabaseDB so existing code (`from supabase_db import SupabaseDB`)
-# continues to work unchanged after renaming to supabase package.
-from db.base import SupabaseDB
+# Re-export Database so `from db import Database` works.
+from db.base import Database
 
-__all__ = ["SupabaseDB"]
+__all__ = ["Database"]

@@ -1,7 +1,15 @@
+"""
+Database facade for MongoDB + GridFS.
+
+Replaces SupabaseDB. Same method signatures so index.py and ingest_worker.py
+don't need changes beyond the import statement.
+"""
+
 from typing import Any
 from uuid import uuid4
+from bson import ObjectId
 
-from db.client import build_client
+from db.mongo_client import build_client
 from db.flashcards import (
     delete_flashcard_deck,
     delete_flashcards,
@@ -15,6 +23,7 @@ from db.notebooks import (
     delete_notebook_rows,
     list_notebooks,
     rename_notebook,
+    touch_notebook,
 )
 from db.podcasts import (
     delete_podcast,
@@ -31,27 +40,41 @@ from db.sources import (
     update_source_status,
     upload_pdf,
 )
+from db.gridfs_client import download_file
 
 
-class SupabaseDB:
+class Database:
+    """
+    MongoDB + GridFS backend with the same interface as the old SupabaseDB.
+    """
+
     def __init__(self):
-        self.client, self.url, self.bucket, self.user_id = build_client()
+        self.db, self.pdf_bucket, self.audio_bucket, self.user_id = build_client()
 
-    # ── Notebooks ─────────────────────────────────────────────────────────────
+    # Notebooks
 
     def list_notebooks(self) -> list[dict[str, Any]]:
-        return list_notebooks(self.client, self.user_id)
+        return list_notebooks(self.db, self.user_id)
 
     def create_notebook(self, title: str = "Untitled notebook") -> dict[str, Any]:
-        return create_notebook(self.client, self.user_id, title)
+        return create_notebook(self.db, self.user_id, title)
 
     def rename_notebook(self, notebook_id: str, title: str) -> dict[str, Any]:
-        return rename_notebook(self.client, self.user_id, notebook_id, title)
+        return rename_notebook(self.db, self.user_id, notebook_id, title)
 
     def delete_notebook_rows(self, notebook_id: str) -> None:
-        delete_notebook_rows(self.client, self.user_id, notebook_id)
+        """
+        Cascade delete: delete GridFS files for all sources, then delete
+        all child collection rows, then the notebook itself.
+        """
+        delete_storage_prefix(self.pdf_bucket, self.db, notebook_id)
+        for collection in ("sources", "messages", "flashcards", "podcasts", "mindmaps"):
+            getattr(self.db, collection).delete_many(
+                {"notebook_id": ObjectId(notebook_id)}
+            )
+        delete_notebook_rows(self.db, self.user_id, notebook_id)
 
-    # ── Sources ───────────────────────────────────────────────────────────────
+    # Sources
 
     def create_source(
         self,
@@ -62,17 +85,17 @@ class SupabaseDB:
         status: str = "indexing",
     ) -> dict[str, Any]:
         return create_source(
-            self.client, notebook_id, source_id, file_name, storage_path, status
+            self.db, notebook_id, source_id, file_name, storage_path, status
         )
 
     def update_source_status(self, source_id: str, status: str) -> None:
-        update_source_status(self.client, source_id, status)
+        update_source_status(self.db, source_id, status)
 
     def list_sources(self, notebook_id: str) -> list[dict[str, Any]]:
-        return list_sources(self.client, notebook_id)
+        return list_sources(self.db, notebook_id)
 
     def delete_source_row(self, source_id: str) -> None:
-        delete_source_row(self.client, source_id)
+        delete_source_row(self.db, source_id)
 
     def upload_pdf(
         self,
@@ -82,8 +105,7 @@ class SupabaseDB:
         data: bytes,
     ) -> str:
         return upload_pdf(
-            self.client,
-            self.bucket,
+            self.pdf_bucket,
             self.user_id,
             notebook_id,
             source_id,
@@ -92,12 +114,16 @@ class SupabaseDB:
         )
 
     def delete_storage_paths(self, storage_paths: list[str]) -> None:
-        delete_storage_paths(self.client, self.bucket, storage_paths)
+        delete_storage_paths(self.pdf_bucket, storage_paths)
 
     def delete_storage_prefix(self, notebook_id: str) -> None:
-        delete_storage_prefix(self.client, self.bucket, self.user_id, notebook_id)
+        delete_storage_prefix(self.pdf_bucket, self.db, notebook_id)
 
-    # ── Messages ──────────────────────────────────────────────────────────────
+    def download_source_file(self, gridfs_file_id: str) -> bytes:
+        """Download a source file from GridFS (used by retry endpoint)."""
+        return download_file(self.pdf_bucket, gridfs_file_id)
+
+    # Messages
 
     def save_message(
         self,
@@ -106,12 +132,12 @@ class SupabaseDB:
         content: str,
         sources: list[str] | None = None,
     ) -> dict[str, Any]:
-        return save_message(self.client, notebook_id, role, content, sources)
+        return save_message(self.db, notebook_id, role, content, sources)
 
     def list_messages(self, notebook_id: str) -> list[dict[str, Any]]:
-        return list_messages(self.client, notebook_id)
+        return list_messages(self.db, notebook_id)
 
-    # ── Flashcards ────────────────────────────────────────────────────────────
+    # Flashcards
 
     def save_flashcards(
         self,
@@ -122,48 +148,50 @@ class SupabaseDB:
         difficulty: str = None,
     ) -> None:
         save_flashcards(
-            self.client, notebook_id, flashcards, deck_id, topic, difficulty
+            self.db, notebook_id, flashcards, deck_id, topic, difficulty
         )
 
     def list_flashcards(self, notebook_id: str) -> list[dict[str, str]]:
-        return list_flashcards(self.client, notebook_id)
+        return list_flashcards(self.db, notebook_id)
 
     def delete_flashcards(self, notebook_id: str) -> None:
-        delete_flashcards(self.client, notebook_id)
+        delete_flashcards(self.db, notebook_id)
 
     def delete_flashcard_deck(self, deck_id: str) -> None:
-        delete_flashcard_deck(self.client, deck_id)
+        delete_flashcard_deck(self.db, deck_id)
 
-    # ── Podcasts ──────────────────────────────────────────────────────────────
+    # Podcasts
 
     def save_podcast(
-        self, notebook_id: str, audio_url: str, format: str, language: str
+        self, notebook_id: str, gridfs_file_id: str, format: str, language: str
     ) -> dict[str, Any]:
-        return save_podcast(self.client, notebook_id, audio_url, format, language)
+        return save_podcast(self.db, notebook_id, gridfs_file_id, format, language)
 
     def list_podcasts(self, notebook_id: str) -> list[dict[str, Any]]:
-        return list_podcasts(self.client, notebook_id)
+        return list_podcasts(self.db, notebook_id)
 
     def delete_podcast(self, podcast_id: str) -> None:
-        delete_podcast(self.client, podcast_id)
+        delete_podcast(self.db, podcast_id)
 
     def upload_podcast_audio(self, notebook_id: str, data: bytes) -> str:
-        return upload_podcast_audio(self.client, self.user_id, notebook_id, data)
+        return upload_podcast_audio(
+            self.audio_bucket, self.user_id, notebook_id, data
+        )
 
-    # ── Mind Maps ─────────────────────────────────────────────────────────────
+    # Mind Maps
 
     def list_mindmaps(self, notebook_id: str) -> list[dict[str, Any]]:
-        return list_mindmaps(self.client, notebook_id)
+        return list_mindmaps(self.db, notebook_id)
 
     def save_mindmap(
         self, notebook_id: str, topic: str, data: dict[str, Any]
     ) -> dict[str, Any]:
-        return save_mindmap(self.client, notebook_id, topic, data)
+        return save_mindmap(self.db, notebook_id, topic, data)
 
     def delete_mindmap(self, mindmap_id: str) -> None:
-        delete_mindmap(self.client, mindmap_id)
+        delete_mindmap(self.db, mindmap_id)
 
-    # ── Utilities ─────────────────────────────────────────────────────────────
+    # Utilities
 
     def next_source_id(self) -> str:
         return str(uuid4())
