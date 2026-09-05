@@ -3,7 +3,7 @@ const nextConfig = {
   turbopack: {
     root: __dirname,
   },
-  // Dev: proxies /api/python/* → Flask on :5328
+  // Dev: proxies /api/python/* → FastAPI on :5328
   // Prod: Vercel routes via vercel.json (rewrites are ignored in production)
   async rewrites() {
     return [
