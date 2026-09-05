@@ -1,3 +1,9 @@
+"""
+FastAPI application for AI Notebooks.
+Replaces the Flask backend with async FastAPI, preserving all routes and
+business logic.
+"""
+
 import json
 import os
 import sys
@@ -5,7 +11,8 @@ import tempfile
 import threading
 from uuid import uuid4
 
-from flask import Flask, Response, jsonify, request, stream_with_context
+from fastapi import FastAPI, Request, UploadFile, File, Form
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -32,7 +39,7 @@ from cache.redis_client import (
 Database().list_notebooks()
 print("Connected to MongoDB successfully")
 
-app = Flask(__name__)
+app = FastAPI(title="AI Notebooks API")
 
 thread_local = threading.local()
 
@@ -46,34 +53,34 @@ def _db():
 # ── Health ────────────────────────────────────────────────────────────────────
 
 
-@app.route("/")
-def python_route():
-    return jsonify(message="Hello from Flask!")
+@app.get("/")
+async def python_route():
+    return {"message": "Hello from FastAPI!"}
 
 
 # ── Notebooks ─────────────────────────────────────────────────────────────────
 
 
-@app.route("/notebooks", methods=["GET"])
-def list_notebooks():
+@app.get("/notebooks")
+async def list_notebooks():
     """Return all notebooks for the demo user, ordered by most-recently updated."""
     db = _db()
     notebooks = db.list_notebooks()
-    return jsonify(notebooks)
+    return notebooks
 
 
-@app.route("/notebooks", methods=["POST"])
-def create_notebook():
-    """Create a new notebook.  Body (JSON): { "title": "..." }  (optional)."""
+@app.post("/notebooks")
+async def create_notebook(request: Request):
+    """Create a new notebook. Body (JSON): { "title": "..." } (optional)."""
     db = _db()
-    body = request.get_json(silent=True) or {}
+    body = await request.json()
     title = (body.get("title") or "Untitled notebook").strip()
     notebook = db.create_notebook(title=title)
-    return jsonify(notebook), 201
+    return JSONResponse(content=notebook, status_code=201)
 
 
-@app.route("/notebooks/<notebook_id>", methods=["DELETE"])
-def delete_notebook(notebook_id):
+@app.delete("/notebooks/{notebook_id}")
+async def delete_notebook(notebook_id: str):
     """Hard delete a notebook from MongoDB (DB + GridFS) and Qdrant."""
     db = _db()
 
@@ -89,48 +96,42 @@ def delete_notebook(notebook_id):
     except Exception as e:
         print(f"Warning: Failed to delete from GridFS: {e}")
 
-    # 3. Delete from MongoDB
+    # 3. Delete from MongoDB (cascade)
     db.delete_notebook_rows(notebook_id)
 
-    return jsonify({"success": True})
+    return {"success": True}
 
 
-@app.route("/notebooks/<notebook_id>/auto-name", methods=["POST"])
-def auto_name_notebook(notebook_id):
+@app.post("/notebooks/{notebook_id}/auto-name")
+async def auto_name_notebook(notebook_id: str):
     """Generate a dynamic title for the notebook based on its uploaded content."""
     try:
         title = generate_notebook_title(notebook_id)
         db = _db()
         db.rename_notebook(notebook_id, title)
-        return jsonify({"title": title}), 200
+        return {"title": title}
     except Exception as e:
         print(f"Error auto-naming notebook {notebook_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
 # ── Sources ───────────────────────────────────────────────────────────────────
 
 
-@app.route("/notebooks/<notebook_id>/sources", methods=["GET"])
-def list_sources(notebook_id):
+@app.get("/notebooks/{notebook_id}/sources")
+async def list_sources(notebook_id: str):
     """Return all sources for a notebook."""
     db = _db()
     sources = db.list_sources(notebook_id)
-    return jsonify(sources)
+    return sources
 
 
-@app.route("/notebooks/<notebook_id>/sources", methods=["POST"])
-def add_source(notebook_id):
+@app.post("/notebooks/{notebook_id}/sources")
+async def add_source(notebook_id: str, file: UploadFile = File(...)):
     """Upload a PDF source."""
-    if "file" not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "No selected file"}), 400
-
     db = _db()
     source_id = db.next_source_id()
-    data = file.read()
+    data = await file.read()
 
     # 1. Upload to GridFS
     gridfs_file_id = db.upload_pdf(notebook_id, source_id, file.filename, data)
@@ -140,7 +141,7 @@ def add_source(notebook_id):
         notebook_id, source_id, file.filename, gridfs_file_id, "indexing"
     )
 
-    # 3. Save to temp file and run ingest (with retry) in the background
+    # 3. Save to temp file and run ingest in the background
     _, ext = os.path.splitext(file.filename)
     fd, temp_path = tempfile.mkstemp(suffix=ext.lower())
     os.write(fd, data)
@@ -154,27 +155,25 @@ def add_source(notebook_id):
 
     threading.Thread(target=process).start()
 
-    # Invalidate cached RAG responses for this notebook (new source = new context)
+    # Invalidate cached RAG responses for this notebook
     try:
         invalidate_notebook_cache(notebook_id)
     except Exception:
         pass
 
-    return jsonify(source), 201
+    return JSONResponse(content=source, status_code=201)
 
 
-@app.route("/notebooks/<notebook_id>/sources/website", methods=["POST"])
-def add_website_source(notebook_id):
-    req_data = request.get_json()
+@app.post("/notebooks/{notebook_id}/sources/website")
+async def add_website_source(notebook_id: str, request: Request):
+    req_data = await request.json()
     if not req_data or "url" not in req_data:
-        return jsonify({"error": "Missing url"}), 400
+        return JSONResponse(content={"error": "Missing url"}, status_code=400)
 
     url = req_data["url"]
     db = _db()
     source_id = db.next_source_id()
 
-    # Store source in DB (we don't upload a file to storage for websites)
-    # Using 'web' as a placeholder storage_path since it cannot be null
     source = db.create_source(notebook_id, source_id, url, "web", "indexing")
 
     def process():
@@ -182,14 +181,14 @@ def add_website_source(notebook_id):
         process_web_source(db, embedding_model, url, notebook_id, source_id)
 
     threading.Thread(target=process).start()
-    return jsonify(source), 201
+    return JSONResponse(content=source, status_code=201)
 
 
-@app.route("/notebooks/<notebook_id>/sources/search", methods=["POST"])
-def add_search_source(notebook_id):
-    req_data = request.get_json()
+@app.post("/notebooks/{notebook_id}/sources/search")
+async def add_search_source(notebook_id: str, request: Request):
+    req_data = await request.json()
     if not req_data or "query" not in req_data:
-        return jsonify({"error": "Missing query"}), 400
+        return JSONResponse(content={"error": "Missing query"}, status_code=400)
 
     query = req_data["query"]
     db = _db()
@@ -198,13 +197,12 @@ def add_search_source(notebook_id):
         results = fetch_search_results(query)
     except Exception as e:
         print(f"Failed to fetch search results: {e}")
-        return jsonify({"error": "Search failed"}), 500
+        return JSONResponse(content={"error": "Search failed"}, status_code=500)
 
     if not results:
-        return jsonify({"error": "No results found"}), 404
+        return JSONResponse(content={"error": "No results found"}, status_code=404)
 
     created_sources = []
-    # Create DB rows for each result
     for r in results:
         source_id = db.next_source_id()
         source = db.create_source(
@@ -218,17 +216,16 @@ def add_search_source(notebook_id):
 
     threading.Thread(target=process, args=(created_sources,)).start()
 
-    # Return the created sources without the raw result_data payload
-    return jsonify([item["source"] for item in created_sources]), 201
+    return JSONResponse(
+        content=[item["source"] for item in created_sources], status_code=201
+    )
 
 
-@app.route("/notebooks/<notebook_id>/sources/<source_id>", methods=["DELETE"])
-def delete_source(notebook_id, source_id):
+@app.delete("/notebooks/{notebook_id}/sources/{source_id}")
+async def delete_source(notebook_id: str, source_id: str):
     """Hard delete a single source from Qdrant, GridFS, and MongoDB."""
     db = _db()
 
-    # Need to know the storage path to delete it from Storage
-    # Let's fetch the source first
     sources = db.list_sources(notebook_id)
     target_source = next((s for s in sources if s["id"] == source_id), None)
 
@@ -248,29 +245,31 @@ def delete_source(notebook_id, source_id):
     # 3. Delete from MongoDB
     db.delete_source_row(source_id)
 
-    # Invalidate cached RAG responses for this notebook
+    # Invalidate cached RAG responses
     try:
         invalidate_notebook_cache(notebook_id)
     except Exception:
         pass
 
-    return jsonify({"success": True}), 200
+    return {"success": True}
 
 
-@app.route("/notebooks/<notebook_id>/sources/<source_id>/retry", methods=["POST"])
-def retry_source(notebook_id, source_id):
+@app.post("/notebooks/{notebook_id}/sources/{source_id}/retry")
+async def retry_source(notebook_id: str, source_id: str):
     """Retry ingestion for a failed or stuck source."""
     db = _db()
     sources = db.list_sources(notebook_id)
     target_source = next((s for s in sources if s["id"] == source_id), None)
 
     if not target_source:
-        return jsonify({"error": "Source not found"}), 404
+        return JSONResponse(content={"error": "Source not found"}, status_code=404)
 
     if target_source.get("status") not in ("failed", "indexing"):
-        return jsonify({"error": "Source is not in a retryable state"}), 400
+        return JSONResponse(
+            content={"error": "Source is not in a retryable state"}, status_code=400
+        )
 
-    # Clean up any partial vectors from the previous attempt
+    # Clean up partial vectors
     try:
         qdrant_db.delete_by_source(source_id)
     except Exception as e:
@@ -285,7 +284,6 @@ def retry_source(notebook_id, source_id):
         embedding_model = get_embedding_model()
 
         if gridfs_file_id and gridfs_file_id not in ("web", "search"):
-            # File-based source: re-download from GridFS and re-ingest
             import tempfile
 
             try:
@@ -302,33 +300,32 @@ def retry_source(notebook_id, source_id):
                 print(f"Retry: Failed to re-download source file: {e}")
                 db.update_source_status(source_id, "failed")
         else:
-            # Web/search source: re-ingest from URL
-            url = file_name  # For web sources, file_name stores the URL
+            url = file_name
             process_web_source(db, embedding_model, url, notebook_id, source_id)
 
     threading.Thread(target=process).start()
 
-    return jsonify({"success": True, "status": "indexing"}), 200
+    return {"success": True, "status": "indexing"}
 
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
 
-@app.route("/notebooks/<notebook_id>/messages", methods=["GET"])
-def list_messages(notebook_id):
+@app.get("/notebooks/{notebook_id}/messages")
+async def list_messages(notebook_id: str):
     """Return full message history for a notebook."""
     db = _db()
     messages = db.list_messages(notebook_id)
-    return jsonify(messages)
+    return messages
 
 
-@app.route("/notebooks/<notebook_id>/chat", methods=["POST"])
-def chat_stream(notebook_id):
+@app.post("/notebooks/{notebook_id}/chat")
+async def chat_stream(notebook_id: str, request: Request):
     """SSE streaming RAG chat endpoint."""
-    body = request.get_json(silent=True) or {}
+    body = await request.json()
     query = (body.get("query") or "").strip()
     if not query:
-        return jsonify({"error": "query is required"}), 400
+        return JSONResponse(content={"error": "query is required"}, status_code=400)
 
     db = _db()
 
@@ -338,7 +335,7 @@ def chat_stream(notebook_id):
     except Exception as e:
         print(f"Warning: Failed to save user message: {e}")
 
-    # Fetch conversation history for multi-turn context
+    # Fetch conversation history
     try:
         history = db.list_messages(notebook_id)
     except Exception as e:
@@ -356,17 +353,14 @@ def chat_stream(notebook_id):
             )
 
             if not has_context:
-                # No docs found — stream a graceful message
                 no_ctx = "I couldn't find relevant information in your sources. Please add PDFs and try again."
                 yield f"data: {json.dumps({'type': 'chunk', 'content': no_ctx})}\n\n"
                 full_answer.append(no_ctx)
             else:
-                # Stream each token
                 for chunk in stream_answer(chat_model, prompt):
                     full_answer.append(chunk)
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
 
-            # Send citations once streaming is done
             if citations:
                 yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
 
@@ -376,7 +370,6 @@ def chat_stream(notebook_id):
             full_answer.append(err_msg)
 
         finally:
-            # Persist assistant message
             answer_text = "".join(full_answer)
             if answer_text:
                 try:
@@ -385,9 +378,9 @@ def chat_stream(notebook_id):
                     print(f"Warning: Failed to save assistant message: {e}")
             yield "data: [DONE]\n\n"
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
@@ -395,9 +388,12 @@ def chat_stream(notebook_id):
     )
 
 
-@app.route("/notebooks/<notebook_id>/flashcards", methods=["POST"])
-def create_flashcards(notebook_id):
-    data = request.json or {}
+# ── Flashcards ─────────────────────────────────────────────────────────────────
+
+
+@app.post("/notebooks/{notebook_id}/flashcards")
+async def create_flashcards(notebook_id: str, request: Request):
+    data = await request.json()
     deck_id = data.get("deck_id") or str(uuid4())
     topic = data.get("topic", "")
     difficulty = data.get("difficulty", "Medium")
@@ -432,14 +428,14 @@ def create_flashcards(notebook_id):
             except Exception as save_err:
                 print(f"Warning: Failed to save flashcards to DB: {save_err}")
 
-        return jsonify({"title": title, "flashcards": cards}), 200
+        return {"title": title, "flashcards": cards}
     except Exception as e:
         print(f"Error generating flashcards: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.route("/notebooks/<notebook_id>/flashcards", methods=["GET"])
-def get_flashcards(notebook_id):
+@app.get("/notebooks/{notebook_id}/flashcards")
+async def get_flashcards(notebook_id: str):
     try:
         db = _db()
         rows = db.list_flashcards(notebook_id)
@@ -459,39 +455,41 @@ def get_flashcards(notebook_id):
                 {"question": row["question"], "answer": row["answer"]}
             )
 
-        return jsonify({"decks": list(decks_map.values())}), 200
+        return {"decks": list(decks_map.values())}
     except Exception as e:
         print(f"Error fetching flashcards: {e}")
         import traceback
 
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.route("/notebooks/<notebook_id>/flashcards/<deck_id>", methods=["DELETE"])
-def delete_flashcard_deck(notebook_id, deck_id):
+@app.delete("/notebooks/{notebook_id}/flashcards/{deck_id}")
+async def delete_flashcard_deck(notebook_id: str, deck_id: str):
     """Delete a flashcard deck."""
     try:
         db = _db()
         db.delete_flashcard_deck(deck_id)
-        return jsonify({"message": "Flashcard deck deleted successfully"})
+        return {"message": "Flashcard deck deleted successfully"}
     except Exception as e:
         import traceback
 
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.route("/notebooks/<notebook_id>/audio", methods=["POST"])
-def generate_audio_overview(notebook_id):
-    data = request.json
+# ── Audio Overview ────────────────────────────────────────────────────────────
+
+
+@app.post("/notebooks/{notebook_id}/audio")
+async def generate_audio_overview(notebook_id: str, request: Request):
+    data = await request.json()
     language = data.get("language", "English")
     focus = data.get("focus", "")
     format_type = data.get("format", "Deep Dive")
     length = data.get("length", "Short")
     source_ids = data.get("source_ids", [])
 
-    # Construct a comprehensive topic instruction
     topic = f"Format: {format_type}."
     if focus:
         topic += f" Special focus/instructions: {focus}."
@@ -504,14 +502,12 @@ def generate_audio_overview(notebook_id):
         from audio.script_gen import generate_podcast_script
 
         def stream_audio():
-            # Yield padding to flush HTTP headers immediately and prevent proxy timeouts
             yield b"\0" * 1024
 
             q = queue.Queue()
 
             def worker():
                 try:
-                    # 1. Generate the script text
                     script_text = generate_podcast_script(
                         chat_model=get_chat_model(),
                         embedding_model=get_embedding_model(),
@@ -523,7 +519,6 @@ def generate_audio_overview(notebook_id):
                         source_ids=source_ids,
                     )
 
-                    # 2. Convert script to audio
                     for chunk in generate_podcast_audio(script_text, language=language):
                         q.put(("audio", chunk))
 
@@ -531,11 +526,9 @@ def generate_audio_overview(notebook_id):
                 except Exception as e:
                     q.put(("error", str(e)))
 
-            # Start background generation thread
             t = threading.Thread(target=worker)
             t.start()
 
-            # Continuously poll the queue, yielding padding bytes if empty to keep connection alive
             while True:
                 try:
                     msg_type, data = q.get(timeout=2.0)
@@ -546,79 +539,70 @@ def generate_audio_overview(notebook_id):
                     elif msg_type == "error":
                         raise Exception(data)
                 except queue.Empty:
-                    # Connection keep-alive
                     yield b"\0" * 1024
 
-        return Response(stream_with_context(stream_audio()), mimetype="audio/mpeg")
+        return StreamingResponse(stream_audio(), media_type="audio/mpeg")
     except Exception as e:
         print(f"Error generating audio overview: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
 # ── Podcasts ──────────────────────────────────────────────────────────────────
 
 
-@app.route("/notebooks/<notebook_id>/podcasts", methods=["GET"])
-def get_podcasts(notebook_id):
+@app.get("/notebooks/{notebook_id}/podcasts")
+async def get_podcasts(notebook_id: str):
     """List all podcasts for a notebook."""
     try:
         db = _db()
         podcasts = db.list_podcasts(notebook_id)
-        return jsonify(podcasts)
+        return podcasts
     except Exception as e:
         print(f"Error listing podcasts: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.route("/notebooks/<notebook_id>/podcasts", methods=["POST"])
-def add_podcast(notebook_id):
+@app.post("/notebooks/{notebook_id}/podcasts")
+async def add_podcast(
+    notebook_id: str,
+    audio: UploadFile = File(...),
+    format: str = Form("Podcast"),
+    language: str = Form("English"),
+):
     """Upload a generated podcast audio and save its metadata."""
-    if "audio" not in request.files:
-        return jsonify({"error": "No audio file part"}), 400
-
-    file = request.files["audio"]
-    if file.filename == "":
-        return jsonify({"error": "No selected file"}), 400
-
-    format = request.form.get("format", "Podcast")
-    language = request.form.get("language", "English")
-
     db = _db()
-    data = file.read()
+    data = await audio.read()
 
     try:
-        # 1. Upload audio to GridFS
         gridfs_file_id = db.upload_podcast_audio(notebook_id, data)
-
-        # 2. Save metadata to Database
         podcast = db.save_podcast(notebook_id, gridfs_file_id, format, language)
-        return jsonify(podcast)
+        return podcast
     except Exception as e:
         print(f"Error saving podcast: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.route("/notebooks/<notebook_id>/podcasts/<podcast_id>", methods=["DELETE"])
-def delete_podcast(notebook_id, podcast_id):
+@app.delete("/notebooks/{notebook_id}/podcasts/{podcast_id}")
+async def delete_podcast(notebook_id: str, podcast_id: str):
     """Delete a podcast."""
     try:
         db = _db()
         db.delete_podcast(podcast_id)
-        return jsonify({"success": True})
+        return {"success": True}
     except Exception as e:
         print(f"Error deleting podcast: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.route("/audio/<file_id>", methods=["GET"])
-def stream_audio(file_id):
+@app.get("/audio/{file_id}")
+async def stream_audio(file_id: str):
     """Stream audio from GridFS by file ID."""
     try:
         db = _db()
         audio_data = db.download_source_file(file_id)
         return Response(
-            audio_data,
-            mimetype="audio/mpeg",
+            content=audio_data,
+            media_type="audio/mpeg",
             headers={
                 "Accept-Ranges": "bytes",
                 "Cache-Control": "public, max-age=3600",
@@ -626,29 +610,29 @@ def stream_audio(file_id):
         )
     except Exception as e:
         print(f"Error streaming audio: {e}")
-        return jsonify({"error": "Audio file not found"}), 404
+        return JSONResponse(content={"error": "Audio file not found"}, status_code=404)
 
 
 # ── Mind Maps ─────────────────────────────────────────────────────────────────
 
 
-@app.route("/notebooks/<notebook_id>/mindmaps", methods=["GET"])
-def get_mindmaps(notebook_id):
+@app.get("/notebooks/{notebook_id}/mindmaps")
+async def get_mindmaps(notebook_id: str):
     """List all mind maps for a notebook."""
     try:
         db = _db()
         mindmaps = db.list_mindmaps(notebook_id)
-        return jsonify(mindmaps)
+        return mindmaps
     except Exception as e:
         print(f"Error listing mind maps: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.route("/notebooks/<notebook_id>/mindmaps", methods=["POST"])
-def add_mindmap(notebook_id):
+@app.post("/notebooks/{notebook_id}/mindmaps")
+async def add_mindmap(notebook_id: str, request: Request):
     """Generate and save a new mind map."""
     try:
-        data = request.json
+        data = await request.json()
         topic = data.get("topic", "General Overview")
         language = data.get("language", "English")
         source_ids = data.get("source_ids", [])
@@ -656,7 +640,6 @@ def add_mindmap(notebook_id):
         from ingestion.embedder import get_embedding_model
         from mindmap.mindmapgen import generate_mindmap_json
 
-        # 1. Generate mind map JSON using LLM
         mindmap_data = generate_mindmap_json(
             embedding_model=get_embedding_model(),
             notebook_id=notebook_id,
@@ -665,23 +648,22 @@ def add_mindmap(notebook_id):
             source_ids=source_ids,
         )
 
-        # 2. Save to database
         db = _db()
         saved = db.save_mindmap(notebook_id, topic, mindmap_data)
 
-        return jsonify(saved)
+        return saved
     except Exception as e:
         print(f"Error generating mind map: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@app.route("/notebooks/<notebook_id>/mindmaps/<mindmap_id>", methods=["DELETE"])
-def delete_mindmap(notebook_id, mindmap_id):
+@app.delete("/notebooks/{notebook_id}/mindmaps/{mindmap_id}")
+async def delete_mindmap(notebook_id: str, mindmap_id: str):
     """Delete a mind map."""
     try:
         db = _db()
         db.delete_mindmap(mindmap_id)
-        return jsonify({"success": True})
+        return {"success": True}
     except Exception as e:
         print(f"Error deleting mind map: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse(content={"error": str(e)}, status_code=500)
