@@ -38,7 +38,6 @@ CRITICAL INSTRUCTIONS:
 7. The language must match the user's requested language.
 """
 
-
 def build_mindmap_prompt(topic, context, language="English"):
     return f"""Topic / Focus: {topic}
 Target Language: {language}
@@ -49,7 +48,6 @@ Source Material:
 Please generate the complete, hierarchical mind map JSON based ONLY on the source material provided above. 
 CRITICAL REQUIREMENT: Output strictly valid JSON. Do not output anything else.
 """
-
 
 def generate_mindmap_json(
     embedding_model, notebook_id, topic=None, language="English", source_ids=None
@@ -73,6 +71,10 @@ def generate_mindmap_json(
             search_kwargs={"k": 8, "filter": notebook_filter(notebook_id, source_ids)}
         )
         all_docs = retriever.invoke(topic)
+        if not all_docs:
+            raise ValueError(
+                "No source material found in the selected sources to generate a mind map."
+            )
         docs = random.sample(all_docs, min(len(all_docs), 4))
     else:
         # Retrieve random chunks from the notebook

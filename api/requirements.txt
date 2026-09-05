@@ -9,3 +9,6 @@ langchain-nvidia-ai-endpoints
 langchain-sarvamcloud
 pypandoc
 markitdown
+python-multipart
+firecrawl-py
+langchain-pymupdf4llm

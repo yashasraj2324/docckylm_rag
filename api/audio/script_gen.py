@@ -36,6 +36,10 @@ def generate_podcast_script(
             }
         )
         all_docs = retriever.invoke(topic)
+        if not all_docs:
+            raise ValueError(
+                "No source material found in the selected sources to generate a podcast."
+            )
         # Sample chunks for varied scripts
         docs = random.sample(all_docs, min(len(all_docs), 6))
     else:
