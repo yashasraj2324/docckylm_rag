@@ -113,16 +113,6 @@ def source_filter(source_id):
     )
 
 
-def _get_client():
-    config = _qdrant_config()
-    return QdrantClient(
-        url=config["url"],
-        api_key=config["api_key"],
-        timeout=config["timeout"],
-        check_compatibility=config["check_compatibility"],
-    )
-
-
 def ensure_payload_indexes():
     global _PAYLOAD_INDEXES_READY
 

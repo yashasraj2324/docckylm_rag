@@ -75,7 +75,7 @@ Follow these steps to run the complete stack on your local machine.
 ### Prerequisites
 1. **Node.js** (v18 or higher)
 2. **Python** (v3.10 or higher)
-3. A **Supabase** account (Create a new project to get your URL and Anon Key).
+3. A **Supabase** account (Create a new project to get your Project URL and Service Role Key).
 4. A **Qdrant** instance (Local docker container or Qdrant Cloud).
 5. A **Sarvam AI** API Key (For podcast generation).
 
@@ -84,8 +84,15 @@ Create a `.env` (or `.env.local`) file in the root of your project. You will nee
 
 ```ini
 # --- SUPABASE ---
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_KEY=your_supabase_anon_key
+# SUPABASE_URI accepts either the REST URL (https://<project-ref>.supabase.co)
+# or the Postgres connection string (postgresql://...@db.<project-ref>.supabase.co:5432/postgres)
+SUPABASE_URI=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+# Optional: override the default storage bucket name ("notebook-sources")
+# SUPABASE_STORAGE_BUCKET=notebook-sources
+# A fixed UUID for the single-user demo. Generate one with:
+#   python -c "import uuid; print(uuid.uuid4())"
+DEMO_USER_ID=your_fixed_demo_user_uuid
 
 # --- QDRANT ---
 QDRANT_URL=your_qdrant_url

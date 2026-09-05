@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import threading
+from uuid import uuid4
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 
@@ -448,7 +449,7 @@ def get_flashcards(notebook_id):
 def delete_flashcard_deck(notebook_id, deck_id):
     """Delete a flashcard deck."""
     try:
-        db = DBClient(user_id=mock_user_id)
+        db = _db()
         db.delete_flashcard_deck(deck_id)
         return jsonify({"message": "Flashcard deck deleted successfully"})
     except Exception as e:
