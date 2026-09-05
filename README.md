@@ -54,12 +54,12 @@ The project is split into two heavily decoupled layers: a React-based frontend a
 
 ### Frontend (User Interface)
 - **Framework**: **Next.js 16+** (App Router) with React 19.
-- **Styling**: **Tailwind CSS** for a fully responsive, modern dark-mode interface.
+- **Styling**: **Tailwind CSS** with a focused 4-color palette (white, black, yellow, blue) for a clean, intentional design.
 - **Icons**: **Lucide React** for lightweight, consistent iconography.
 - **Markdown Handling**: `react-markdown` and `remark-gfm` to perfectly render LLM outputs (tables, bold text, code blocks, etc.).
 
 ### Backend (AI & Data Pipeline)
-- **Server**: **Flask** (Python 3.10+) serving a robust RESTful API.
+- **Server**: **FastAPI** (Python 3.10+, async) serving a robust RESTful API with automatic OpenAPI docs.
 - **AI Models**: **NVIDIA API** powers the Large Language Models (LLMs), Text Embeddings, and semantic Document Reranking.
 - **Primary Database**: **MongoDB** stores notebook metadata, chat histories, flashcard decks, and mind map structures as BSON documents.
 - **Object Storage**: **GridFS** stores uploaded PDFs and generated podcast MP3s in chunked collections.
@@ -109,7 +109,7 @@ SARVAM_API_KEY=your_sarvam_api_subscription_key
 NVIDIA_API_KEY=your_nvidia_api_key
 ```
 
-### Step 2: Backend Setup (Python/Flask)
+### Step 2: Backend Setup (Python/FastAPI)
 Open a terminal in the root directory of the project:
 
 ```bash
@@ -125,9 +125,9 @@ venv\Scripts\activate
 # 3. Install the required Python packages
 pip install -r requirements.txt
 
-# 4. Start the Flask server (runs on port 5328 by default)
+# 4. Start the FastAPI server (runs on port 5328 by default)
 npm run backend
-# Alternatively run: python -m flask --app api/index.py run --port 5328 --debug
+# Alternatively run: uvicorn api.index:app --host 0.0.0.0 --port 5328 --reload
 ```
 
 ### Step 3: Frontend Setup (Next.js)
@@ -148,13 +148,17 @@ The application will now be running. Open `http://localhost:3000` in your browse
 ## 📂 Codebase Structure Deep Dive
 
 ```text
-├── api/                        # Python Flask Backend
+├── api/                        # Python FastAPI Backend
 │   ├── audio/                  # Audio pipeline
 │   │   ├── audio_gen.py        # Sarvam API integration & text chunking logic
 │   │   ├── prompt.py           # Podcast dialogue generation prompts
 │   │   └── script_gen.py       # LLM call to write the podcast script
+│   ├── cache/                  # Redis client for caching and rate limiting
+│   │   └── redis_client.py    # Response cache, embedding cache, rate limiter
 │   ├── db/                     # Database wrapper clients
-│   │   ├── base.py             # Main Database client class (MongoDB + GridFS)
+│   │   ├── base.py             # Main Database class (MongoDB + GridFS)
+│   │   ├── mongo_client.py     # MongoDB connection builder with auto-indexes
+│   │   ├── gridfs_client.py    # GridFS upload/download/delete helpers
 │   │   ├── flashcards.py       # CRUD operations for Flashcards
 │   │   ├── mindmaps.py         # CRUD operations for Mind Maps
 │   │   ├── notebooks.py        # CRUD operations for Notebook Workspaces
@@ -164,7 +168,7 @@ The application will now be running. Open `http://localhost:3000` in your browse
 │   │   └── splitter.py         # Chunks text into semantic blocks for Qdrant
 │   ├── mindmap/                # Mind map structure generation via LLM
 │   ├── pipeline/               # The core RAG retrieval & QA pipeline
-│   └── index.py                # Flask application initialization and REST routes
+│   └── index.py                # FastAPI application initialization and REST routes
 │
 ├── app/                        # Next.js Frontend (App Router)
 │   ├── notebooks/[id]/         # Dynamic route for individual notebooks
@@ -172,9 +176,6 @@ The application will now be running. Open `http://localhost:3000` in your browse
 │   ├── layout.tsx              # Global layout and font definitions
 │   └── page.tsx                # Landing/Home page
 │
-├── components/                 # Reusable UI components (Modals, Icons, etc.)
-├── lib/                        # Shared frontend utilities (API fetchers, class mergers)
-├── public/                     # Static assets (Favicon, images)
 ├── package.json                # Frontend dependencies and npm scripts
 └── requirements.txt            # Backend Python dependencies
 ```
@@ -186,3 +187,4 @@ The application will now be running. Open `http://localhost:3000` in your browse
 - **Secure Deletion**: The system is built with robust hard-delete functionality. Deleting a notebook instantly purges its associated vectors from Qdrant, its PDFs/MP3s from GridFS, and its metadata from MongoDB.
 - **Chunked Processing**: To bypass strict character limits imposed by third-party TTS engines (like Sarvam AI's 500-character limit), the backend employs intelligent regex-based text chunking, ensuring seamless audio generation without dropping sentences.
 - **Optimized UI**: The Next.js frontend uses lazy loading and optimized React state management to ensure the chat interface and heavily animated components remain smooth even when handling large RAG contexts.
+- **Redis Caching**: RAG responses are cached in Redis (1h TTL) and automatically invalidated when sources are added or deleted, reducing redundant LLM calls for repeated questions.
