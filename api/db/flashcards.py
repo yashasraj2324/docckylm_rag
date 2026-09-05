@@ -1,20 +1,29 @@
-from typing import cast
+"""
+Flashcard CRUD operations for MongoDB.
 
-from supabase import Client
+Replaces Supabase version. Decks are virtual groupings (deck_id field, not a
+separate collection). Flashcards are appended, never replaced.
+"""
+
+from typing import Any
+
+from bson import ObjectId
+from pymongo.database import Database as MongoDatabase
+
+from db.mongo_client import _serialize_doc
 
 
 def save_flashcards(
-    client: Client,
+    db: MongoDatabase,
     notebook_id: str,
     flashcards: list[dict[str, str]],
     deck_id: str = None,
     topic: str = None,
     difficulty: str = None,
 ) -> None:
-    # Don't delete existing flashcards, just append new ones!
     rows = [
         {
-            "notebook_id": notebook_id,
+            "notebook_id": ObjectId(notebook_id),
             "deck_id": deck_id,
             "topic": topic,
             "difficulty": difficulty,
@@ -25,24 +34,19 @@ def save_flashcards(
         for i, card in enumerate(flashcards)
     ]
     if rows:
-        client.table("flashcards").insert(rows).execute()
+        db.flashcards.insert_many(rows)
 
 
-def list_flashcards(client: Client, notebook_id: str) -> list[dict[str, str]]:
-    response = (
-        client.table("flashcards")
-        .select("*")
-        .eq("notebook_id", notebook_id)
-        .order("card_order")
-        .execute()
+def list_flashcards(db: MongoDatabase, notebook_id: str) -> list[dict[str, Any]]:
+    docs = list(
+        db.flashcards.find({"notebook_id": ObjectId(notebook_id)}).sort("card_order", 1)
     )
-    rows = cast(list[dict[str, str]], response.data or [])
-    return rows
+    return [_serialize_doc(d) for d in docs]
 
 
-def delete_flashcards(client: Client, notebook_id: str) -> None:
-    client.table("flashcards").delete().eq("notebook_id", notebook_id).execute()
+def delete_flashcards(db: MongoDatabase, notebook_id: str) -> None:
+    db.flashcards.delete_many({"notebook_id": ObjectId(notebook_id)})
 
 
-def delete_flashcard_deck(client: Client, deck_id: str) -> None:
-    client.table("flashcards").delete().eq("deck_id", deck_id).execute()
+def delete_flashcard_deck(db: MongoDatabase, deck_id: str) -> None:
+    db.flashcards.delete_many({"deck_id": deck_id})

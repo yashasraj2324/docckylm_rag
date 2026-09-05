@@ -1,87 +1,101 @@
-from typing import Any, cast
+"""
+Source CRUD operations for MongoDB.
 
-from db.client import safe_file_name
-from supabase import Client
+Replaces Supabase version. File storage uses GridFS instead of Supabase Storage.
+The `storage_path` field becomes `gridfs_file_id` (ObjectId stored as string).
+"""
+
+from datetime import datetime, timezone
+from typing import Any
+
+from bson import ObjectId
+from gridfs import GridFSBucket
+from pymongo.database import Database as MongoDatabase
+
+from db.gridfs_client import (
+    delete_file,
+    delete_files_by_notebook,
+    upload_file,
+)
+from db.mongo_client import _serialize_doc, safe_file_name
+from db.notebooks import touch_notebook
 
 
 def create_source(
-    client: Client,
+    db: MongoDatabase,
     notebook_id: str,
     source_id: str,
     file_name: str,
-    storage_path: str,
+    gridfs_file_id: str,
     status: str = "indexing",
 ) -> dict[str, Any]:
-    response = (
-        client.table("sources")
-        .insert(
-            {
-                "id": source_id,
-                "notebook_id": notebook_id,
-                "source_type": "pdf",
-                "file_name": file_name,
-                "storage_path": storage_path,
-                "status": status,
-            }
-        )
-        .execute()
+    now = datetime.now(timezone.utc)
+    doc = {
+        "_id": ObjectId(source_id),
+        "notebook_id": ObjectId(notebook_id),
+        "source_type": "pdf",
+        "file_name": file_name,
+        "gridfs_file_id": ObjectId(gridfs_file_id) if gridfs_file_id and gridfs_file_id != "web" else gridfs_file_id,
+        "status": status,
+        "created_at": now,
+    }
+    db.sources.insert_one(doc)
+    touch_notebook(db, notebook_id)
+    return _serialize_doc(doc)
+
+
+def update_source_status(db: MongoDatabase, source_id: str, status: str) -> None:
+    db.sources.update_one(
+        {"_id": ObjectId(source_id)}, {"$set": {"status": status}}
     )
-    return cast(dict[str, Any], response.data[0])
 
 
-def update_source_status(client: Client, source_id: str, status: str) -> None:
-    (client.table("sources").update({"status": status}).eq("id", source_id).execute())
-
-
-def list_sources(client: Client, notebook_id: str) -> list[dict[str, Any]]:
-    response = (
-        client.table("sources")
-        .select("*")
-        .eq("notebook_id", notebook_id)
-        .order("created_at", desc=False)
-        .execute()
+def list_sources(db: MongoDatabase, notebook_id: str) -> list[dict[str, Any]]:
+    docs = list(
+        db.sources.find({"notebook_id": ObjectId(notebook_id)}).sort("created_at", 1)
     )
-    return cast(list[dict[str, Any]], response.data or [])
+    return [_serialize_doc(d) for d in docs]
 
 
-def delete_source_row(client: Client, source_id: str) -> None:
-    (client.table("sources").delete().eq("id", source_id).execute())
+def delete_source_row(db: MongoDatabase, source_id: str) -> None:
+    db.sources.delete_one({"_id": ObjectId(source_id)})
 
 
 def upload_pdf(
-    client: Client,
-    bucket: str,
+    bucket: GridFSBucket,
     user_id: str,
     notebook_id: str,
     source_id: str,
     file_name: str,
     data: bytes,
 ) -> str:
-    storage_path = (
-        f"{user_id}/{notebook_id}/{source_id}/" f"{safe_file_name(file_name)}"
-    )
-    client.storage.from_(bucket).upload(
-        storage_path,
+    """Upload PDF to GridFS, return the file ID as string."""
+    file_id = upload_file(
+        bucket,
         data,
-        file_options={
-            "content-type": "application/pdf",
-            "upsert": "true",
+        filename=safe_file_name(file_name),
+        metadata={
+            "user_id": user_id,
+            "notebook_id": notebook_id,
+            "source_id": source_id,
+            "content_type": "application/pdf",
         },
     )
-    return storage_path
+    return str(file_id)
 
 
-def delete_storage_paths(client: Client, bucket: str, storage_paths: list[str]) -> None:
-    if storage_paths:
-        client.storage.from_(bucket).remove(storage_paths)
+def delete_storage_paths(bucket: GridFSBucket, storage_paths: list[str]) -> None:
+    """Delete GridFS files by their IDs (stored as strings)."""
+    for path in storage_paths:
+        if path and path not in ("web", "search"):
+            try:
+                delete_file(bucket, path)
+            except Exception:
+                pass
 
 
 def delete_storage_prefix(
-    client: Client, bucket: str, user_id: str, notebook_id: str
+    bucket: GridFSBucket, db: MongoDatabase, notebook_id: str
 ) -> None:
-    prefix = f"{user_id}/{notebook_id}"
-    response = client.storage.from_(bucket).list(prefix)
-    paths = [
-        f"{prefix}/{item['name']}" for item in (response or []) if item.get("name")
-    ]
-    delete_storage_paths(client, bucket, paths)
+    """Delete all GridFS files for sources belonging to a notebook."""
+    delete_files_by_notebook(bucket, db, notebook_id)
