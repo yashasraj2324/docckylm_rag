@@ -9,7 +9,8 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from db import SupabaseDB
+from bson import ObjectId
+from db import Database
 from ingestion.embedder import get_embedding_model
 from llm.chat_model import get_chat_model
 from pipeline.flashcards import generate_flashcards
@@ -22,9 +23,14 @@ from pipeline.naming import generate_notebook_title
 from pipeline.query import prepare_answer, stream_answer
 from vectorstore import qdrant_db
 from web.loader import fetch_search_results
+from cache.redis_client import (
+    get_cached_response,
+    set_cached_response,
+    invalidate_notebook_cache,
+)
 
-SupabaseDB().list_notebooks()
-print("Connected to Supabase successfully")
+Database().list_notebooks()
+print("Connected to MongoDB successfully")
 
 app = Flask(__name__)
 
@@ -33,7 +39,7 @@ thread_local = threading.local()
 
 def _db():
     if not hasattr(thread_local, "db_instance"):
-        thread_local.db_instance = SupabaseDB()
+        thread_local.db_instance = Database()
     return thread_local.db_instance
 
 
@@ -68,7 +74,7 @@ def create_notebook():
 
 @app.route("/notebooks/<notebook_id>", methods=["DELETE"])
 def delete_notebook(notebook_id):
-    """Hard delete a notebook from Supabase (DB + Storage) and Qdrant."""
+    """Hard delete a notebook from MongoDB (DB + GridFS) and Qdrant."""
     db = _db()
 
     # 1. Delete from Qdrant
@@ -77,13 +83,13 @@ def delete_notebook(notebook_id):
     except Exception as e:
         print(f"Warning: Failed to delete from Qdrant: {e}")
 
-    # 2. Delete from Supabase Storage
+    # 2. Delete from GridFS
     try:
         db.delete_storage_prefix(notebook_id)
     except Exception as e:
-        print(f"Warning: Failed to delete from Supabase Storage: {e}")
+        print(f"Warning: Failed to delete from GridFS: {e}")
 
-    # 3. Delete from Supabase DB
+    # 3. Delete from MongoDB
     db.delete_notebook_rows(notebook_id)
 
     return jsonify({"success": True})
@@ -126,12 +132,12 @@ def add_source(notebook_id):
     source_id = db.next_source_id()
     data = file.read()
 
-    # 1. Upload to Supabase Storage
-    storage_path = db.upload_pdf(notebook_id, source_id, file.filename, data)
+    # 1. Upload to GridFS
+    gridfs_file_id = db.upload_pdf(notebook_id, source_id, file.filename, data)
 
     # 2. Create DB row
     source = db.create_source(
-        notebook_id, source_id, file.filename, storage_path, "indexing"
+        notebook_id, source_id, file.filename, gridfs_file_id, "indexing"
     )
 
     # 3. Save to temp file and run ingest (with retry) in the background
@@ -147,6 +153,12 @@ def add_source(notebook_id):
         )
 
     threading.Thread(target=process).start()
+
+    # Invalidate cached RAG responses for this notebook (new source = new context)
+    try:
+        invalidate_notebook_cache(notebook_id)
+    except Exception:
+        pass
 
     return jsonify(source), 201
 
@@ -212,7 +224,7 @@ def add_search_source(notebook_id):
 
 @app.route("/notebooks/<notebook_id>/sources/<source_id>", methods=["DELETE"])
 def delete_source(notebook_id, source_id):
-    """Hard delete a single source from Qdrant, Supabase Storage, and Supabase DB."""
+    """Hard delete a single source from Qdrant, GridFS, and MongoDB."""
     db = _db()
 
     # Need to know the storage path to delete it from Storage
@@ -226,15 +238,21 @@ def delete_source(notebook_id, source_id):
     except Exception as e:
         print(f"Warning: Failed to delete source from Qdrant: {e}")
 
-    # 2. Delete from Supabase Storage
-    if target_source and target_source.get("storage_path"):
+    # 2. Delete from GridFS
+    if target_source and target_source.get("gridfs_file_id"):
         try:
-            db.delete_storage_paths([target_source["storage_path"]])
+            db.delete_storage_paths([target_source["gridfs_file_id"]])
         except Exception as e:
-            print(f"Warning: Failed to delete source from Supabase Storage: {e}")
+            print(f"Warning: Failed to delete source from GridFS: {e}")
 
-    # 3. Delete from Supabase DB
+    # 3. Delete from MongoDB
     db.delete_source_row(source_id)
+
+    # Invalidate cached RAG responses for this notebook
+    try:
+        invalidate_notebook_cache(notebook_id)
+    except Exception:
+        pass
 
     return jsonify({"success": True}), 200
 
@@ -260,18 +278,18 @@ def retry_source(notebook_id, source_id):
 
     db.update_source_status(source_id, "indexing")
 
-    storage_path = target_source.get("storage_path", "")
+    gridfs_file_id = target_source.get("gridfs_file_id", "")
     file_name = target_source.get("file_name", source_id)
 
     def process():
         embedding_model = get_embedding_model()
 
-        if storage_path and storage_path not in ("web", "search"):
-            # File-based source: re-download from Supabase Storage and re-ingest
+        if gridfs_file_id and gridfs_file_id not in ("web", "search"):
+            # File-based source: re-download from GridFS and re-ingest
             import tempfile
 
             try:
-                file_data = db.client.storage.from_(db.bucket).download(storage_path)
+                file_data = db.download_source_file(gridfs_file_id)
                 _, ext = os.path.splitext(file_name)
                 fd, temp_path = tempfile.mkstemp(suffix=ext.lower())
                 os.write(fd, file_data)
@@ -423,19 +441,11 @@ def create_flashcards(notebook_id):
 @app.route("/notebooks/<notebook_id>/flashcards", methods=["GET"])
 def get_flashcards(notebook_id):
     try:
-        from db.base import SupabaseDB
-
-        db = SupabaseDB()
-        res = (
-            db.client.table("flashcards")
-            .select("*")
-            .eq("notebook_id", notebook_id)
-            .order("created_at", desc=True)
-            .execute()
-        )
+        db = _db()
+        rows = db.list_flashcards(notebook_id)
 
         decks_map = {}
-        for row in res.data:
+        for row in rows:
             deck_id = row.get("deck_id") or "default"
             if deck_id not in decks_map:
                 decks_map[deck_id] = {
@@ -577,11 +587,11 @@ def add_podcast(notebook_id):
     data = file.read()
 
     try:
-        # 1. Upload audio to Storage
-        audio_url = db.upload_podcast_audio(notebook_id, data)
+        # 1. Upload audio to GridFS
+        gridfs_file_id = db.upload_podcast_audio(notebook_id, data)
 
         # 2. Save metadata to Database
-        podcast = db.save_podcast(notebook_id, audio_url, format, language)
+        podcast = db.save_podcast(notebook_id, gridfs_file_id, format, language)
         return jsonify(podcast)
     except Exception as e:
         print(f"Error saving podcast: {e}")
@@ -598,6 +608,25 @@ def delete_podcast(notebook_id, podcast_id):
     except Exception as e:
         print(f"Error deleting podcast: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/audio/<file_id>", methods=["GET"])
+def stream_audio(file_id):
+    """Stream audio from GridFS by file ID."""
+    try:
+        db = _db()
+        audio_data = db.download_source_file(file_id)
+        return Response(
+            audio_data,
+            mimetype="audio/mpeg",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
+    except Exception as e:
+        print(f"Error streaming audio: {e}")
+        return jsonify({"error": "Audio file not found"}), 404
 
 
 # ── Mind Maps ─────────────────────────────────────────────────────────────────
