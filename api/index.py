@@ -13,11 +13,14 @@ from db import SupabaseDB
 from ingestion.embedder import get_embedding_model
 from llm.chat_model import get_chat_model
 from pipeline.flashcards import generate_flashcards
-from pipeline.ingest import ingest
+from pipeline.ingest_worker import (
+    process_file_source,
+    process_search_results,
+    process_web_source,
+)
 from pipeline.naming import generate_notebook_title
 from pipeline.query import prepare_answer, stream_answer
 from vectorstore import qdrant_db
-from web.ingest import ingest_web_url
 from web.loader import fetch_search_results
 
 SupabaseDB().list_notebooks()
@@ -131,35 +134,17 @@ def add_source(notebook_id):
         notebook_id, source_id, file.filename, storage_path, "indexing"
     )
 
-    # 3. Save to temp file and run ingest
+    # 3. Save to temp file and run ingest (with retry) in the background
     _, ext = os.path.splitext(file.filename)
     fd, temp_path = tempfile.mkstemp(suffix=ext.lower())
     os.write(fd, data)
     os.close(fd)
 
     def process():
-        try:
-            embedding_model = get_embedding_model()
-            ingest(embedding_model, temp_path, file.filename, notebook_id, source_id)
-            db.update_source_status(source_id, "ready")
-
-            # Auto-name if it's the first upload
-            notebooks = db.list_notebooks()
-            nb = next((n for n in notebooks if n["id"] == notebook_id), None)
-            if nb and nb["title"] == "Untitled notebook":
-                from pipeline.naming import generate_notebook_title
-
-                new_title = generate_notebook_title(notebook_id)
-                db.rename_notebook(notebook_id, new_title)
-
-        except Exception as e:
-            print(f"Ingestion failed: {e}")
-            db.update_source_status(source_id, "failed")
-        finally:
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
+        embedding_model = get_embedding_model()
+        process_file_source(
+            db, embedding_model, temp_path, file.filename, notebook_id, source_id
+        )
 
     threading.Thread(target=process).start()
 
@@ -181,21 +166,8 @@ def add_website_source(notebook_id):
     source = db.create_source(notebook_id, source_id, url, "web", "indexing")
 
     def process():
-        try:
-            embedding_model = get_embedding_model()
-            ingest_web_url(embedding_model, url, notebook_id, source_id)
-            db.update_source_status(source_id, "ready")
-
-            notebooks = db.list_notebooks()
-            nb = next((n for n in notebooks if n["id"] == notebook_id), None)
-            if nb and nb["title"] == "Untitled notebook":
-                from pipeline.naming import generate_notebook_title
-
-                new_title = generate_notebook_title(notebook_id)
-                db.rename_notebook(notebook_id, new_title)
-        except Exception as e:
-            print(f"Ingestion failed for website: {e}")
-            db.update_source_status(source_id, "failed")
+        embedding_model = get_embedding_model()
+        process_web_source(db, embedding_model, url, notebook_id, source_id)
 
     threading.Thread(target=process).start()
     return jsonify(source), 201
@@ -230,27 +202,7 @@ def add_search_source(notebook_id):
 
     def process(sources_to_process):
         embedding_model = get_embedding_model()
-        for item in sources_to_process:
-            source_id = item["source"]["id"]
-            try:
-                ingest_web_url(
-                    embedding_model, item["result_data"]["url"], notebook_id, source_id
-                )
-                db.update_source_status(source_id, "ready")
-            except Exception as e:
-                print(f"Ingestion failed for search result: {e}")
-                db.update_source_status(source_id, "failed")
-
-        try:
-            notebooks = db.list_notebooks()
-            nb = next((n for n in notebooks if n["id"] == notebook_id), None)
-            if nb and nb["title"] == "Untitled notebook":
-                from pipeline.naming import generate_notebook_title
-
-                new_title = generate_notebook_title(notebook_id)
-                db.rename_notebook(notebook_id, new_title)
-        except Exception as e:
-            pass
+        process_search_results(db, embedding_model, sources_to_process, notebook_id)
 
     threading.Thread(target=process, args=(created_sources,)).start()
 
@@ -287,6 +239,60 @@ def delete_source(notebook_id, source_id):
     return jsonify({"success": True}), 200
 
 
+@app.route("/notebooks/<notebook_id>/sources/<source_id>/retry", methods=["POST"])
+def retry_source(notebook_id, source_id):
+    """Retry ingestion for a failed or stuck source."""
+    db = _db()
+    sources = db.list_sources(notebook_id)
+    target_source = next((s for s in sources if s["id"] == source_id), None)
+
+    if not target_source:
+        return jsonify({"error": "Source not found"}), 404
+
+    if target_source.get("status") not in ("failed", "indexing"):
+        return jsonify({"error": "Source is not in a retryable state"}), 400
+
+    # Clean up any partial vectors from the previous attempt
+    try:
+        qdrant_db.delete_by_source(source_id)
+    except Exception as e:
+        print(f"Warning: Failed to clean up Qdrant vectors during retry: {e}")
+
+    db.update_source_status(source_id, "indexing")
+
+    storage_path = target_source.get("storage_path", "")
+    file_name = target_source.get("file_name", source_id)
+
+    def process():
+        embedding_model = get_embedding_model()
+
+        if storage_path and storage_path not in ("web", "search"):
+            # File-based source: re-download from Supabase Storage and re-ingest
+            import tempfile
+
+            try:
+                file_data = db.client.storage.from_(db.bucket).download(storage_path)
+                _, ext = os.path.splitext(file_name)
+                fd, temp_path = tempfile.mkstemp(suffix=ext.lower())
+                os.write(fd, file_data)
+                os.close(fd)
+
+                process_file_source(
+                    db, embedding_model, temp_path, file_name, notebook_id, source_id
+                )
+            except Exception as e:
+                print(f"Retry: Failed to re-download source file: {e}")
+                db.update_source_status(source_id, "failed")
+        else:
+            # Web/search source: re-ingest from URL
+            url = file_name  # For web sources, file_name stores the URL
+            process_web_source(db, embedding_model, url, notebook_id, source_id)
+
+    threading.Thread(target=process).start()
+
+    return jsonify({"success": True, "status": "indexing"}), 200
+
+
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
 
@@ -314,6 +320,13 @@ def chat_stream(notebook_id):
     except Exception as e:
         print(f"Warning: Failed to save user message: {e}")
 
+    # Fetch conversation history for multi-turn context
+    try:
+        history = db.list_messages(notebook_id)
+    except Exception as e:
+        print(f"Warning: Failed to fetch message history: {e}")
+        history = []
+
     def generate():
         full_answer = []
         citations = []
@@ -321,7 +334,7 @@ def chat_stream(notebook_id):
             embedding_model = get_embedding_model()
             chat_model = get_chat_model()
             prompt, citations, _ctx, has_context = prepare_answer(
-                embedding_model, query, notebook_id
+                embedding_model, query, notebook_id, history=history
             )
 
             if not has_context:
