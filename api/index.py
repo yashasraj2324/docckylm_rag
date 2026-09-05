@@ -17,7 +17,6 @@ from fastapi.responses import StreamingResponse, JSONResponse, Response
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from bson import ObjectId
 from db import Database
 from ingestion.embedder import get_embedding_model
 from llm.chat_model import get_chat_model
@@ -31,11 +30,7 @@ from pipeline.naming import generate_notebook_title
 from pipeline.query import prepare_answer, stream_answer
 from vectorstore import qdrant_db
 from web.loader import fetch_search_results
-from cache.redis_client import (
-    get_cached_response,
-    set_cached_response,
-    invalidate_notebook_cache,
-)
+from cache.redis_client import invalidate_notebook_cache
 
 Database().list_notebooks()
 print("Connected to MongoDB successfully")
@@ -152,7 +147,7 @@ async def add_source(notebook_id: str, file: UploadFile = File(...)):
     )
 
     # 3. Save to temp file and run ingest in the background
-    _, ext = os.path.splitext(file.filename)
+    _, ext = os.path.splitext(file.filename or "")
     fd, temp_path = tempfile.mkstemp(suffix=ext.lower())
     os.write(fd, data)
     os.close(fd)
