@@ -1,3 +1,5 @@
+import os
+
 from ingestion.embedder import get_embedding_model
 from llm.chat_model import get_chat_model
 from pipeline.flashcards import generate_flashcards
@@ -13,8 +15,15 @@ class RAGPipeline:
 
     # ── Ingestion ─────────────────────────────────────────────────────────────
 
-    def ingest(self, pdf_path, notebook_id, source_id):
-        ingest(self.embedding_model, pdf_path, notebook_id, source_id)
+    def ingest(self, file_path, notebook_id, source_id, original_file_name=None):
+        original_file_name = original_file_name or os.path.basename(file_path)
+        ingest(
+            self.embedding_model,
+            file_path,
+            original_file_name,
+            notebook_id,
+            source_id,
+        )
 
     # ── Query / Answer ────────────────────────────────────────────────────────
 

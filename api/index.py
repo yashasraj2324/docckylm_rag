@@ -5,10 +5,12 @@ business logic.
 """
 
 import json
+import mimetypes
 import os
 import sys
 import tempfile
 import threading
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request, UploadFile, File, Form
@@ -28,7 +30,9 @@ from pipeline.ingest_worker import (
 )
 from pipeline.naming import generate_notebook_title
 from pipeline.query import prepare_answer, stream_answer
+from ingestion.extractor import load_asset
 from vectorstore import qdrant_db
+from vectorstore.visual_qdrant import delete_by_source as delete_visual_by_source
 from web.loader import fetch_search_results
 from cache.redis_client import (
     get_cached_response,
@@ -127,6 +131,23 @@ async def auto_name_notebook(notebook_id: str):
 
 # ── Sources ───────────────────────────────────────────────────────────────────
 
+SUPPORTED_SOURCE_TYPES = {
+    ".pdf": ("pdf", "application/pdf"),
+    ".doc": ("doc", "application/msword"),
+    ".docx": (
+        "docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    ".pptx": (
+        "pptx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ),
+    ".png": ("image", "image/png"),
+    ".jpg": ("image", "image/jpeg"),
+    ".jpeg": ("image", "image/jpeg"),
+    ".webp": ("image", "image/webp"),
+}
+
 
 @app.get("/notebooks/{notebook_id}/sources")
 async def list_sources(notebook_id: str):
@@ -138,29 +159,55 @@ async def list_sources(notebook_id: str):
 
 @app.post("/notebooks/{notebook_id}/sources")
 async def add_source(notebook_id: str, file: UploadFile = File(...)):
-    """Upload a PDF source."""
+    """Upload a supported document source and index it in the background."""
+    file_name = Path(file.filename or "").name
+    extension = Path(file_name).suffix.lower()
+    source_info = SUPPORTED_SOURCE_TYPES.get(extension)
+    if not file_name or source_info is None:
+        supported = ", ".join(sorted(SUPPORTED_SOURCE_TYPES))
+        return JSONResponse(
+            content={
+                "error": f"Unsupported file type. Supported extensions: {supported}"
+            },
+            status_code=415,
+        )
+
+    source_type, default_content_type = source_info
+    content_type = mimetypes.guess_type(file_name)[0] or default_content_type
+    data = await file.read()
+    if not data:
+        return JSONResponse(
+            content={"error": "Uploaded file is empty"},
+            status_code=400,
+        )
     db = _db()
     source_id = db.next_source_id()
-    data = await file.read()
 
     # 1. Upload to GridFS
-    gridfs_file_id = db.upload_pdf(notebook_id, source_id, file.filename, data)
+    gridfs_file_id = db.upload_pdf(
+        notebook_id, source_id, file_name, data, content_type
+    )
 
     # 2. Create DB row
     source = db.create_source(
-        notebook_id, source_id, file.filename, gridfs_file_id, "indexing"
+        notebook_id,
+        source_id,
+        file_name,
+        gridfs_file_id,
+        "indexing",
+        source_type,
+        content_type,
     )
 
     # 3. Save to temp file and run ingest in the background
-    _, ext = os.path.splitext(file.filename or "")
-    fd, temp_path = tempfile.mkstemp(suffix=ext.lower())
+    fd, temp_path = tempfile.mkstemp(suffix=extension)
     os.write(fd, data)
     os.close(fd)
 
     def process():
         embedding_model = get_embedding_model()
         process_file_source(
-            db, embedding_model, temp_path, file.filename, notebook_id, source_id
+            db, embedding_model, temp_path, file_name, notebook_id, source_id
         )
 
     threading.Thread(target=process).start()
@@ -184,7 +231,15 @@ async def add_website_source(notebook_id: str, request: Request):
     db = _db()
     source_id = db.next_source_id()
 
-    source = db.create_source(notebook_id, source_id, url, "web", "indexing")
+    source = db.create_source(
+        notebook_id,
+        source_id,
+        url,
+        "web",
+        "indexing",
+        "website",
+        "text/html",
+    )
 
     def process():
         embedding_model = get_embedding_model()
@@ -216,7 +271,13 @@ async def add_search_source(notebook_id: str, request: Request):
     for r in results:
         source_id = db.next_source_id()
         source = db.create_source(
-            notebook_id, source_id, r["url"], "search", "indexing"
+            notebook_id,
+            source_id,
+            r["url"],
+            "search",
+            "indexing",
+            "search",
+            "text/html",
         )
         created_sources.append({"source": source, "result_data": r})
 
@@ -244,6 +305,10 @@ async def delete_source(notebook_id: str, source_id: str):
         qdrant_db.delete_by_source(source_id)
     except Exception as e:
         print(f"Warning: Failed to delete source from Qdrant: {e}")
+    try:
+        delete_visual_by_source(source_id)
+    except Exception as e:
+        print(f"Warning: Failed to delete visual vectors from Qdrant: {e}")
 
     # 2. Delete from GridFS
     if target_source and target_source.get("gridfs_file_id"):
@@ -329,6 +394,23 @@ async def list_messages(notebook_id: str):
     return messages
 
 
+@app.get("/notebooks/{notebook_id}/assets/{source_id}/{asset_id}")
+async def get_asset(notebook_id: str, source_id: str, asset_id: str):
+    db = _db()
+    source = next(
+        (item for item in db.list_sources(notebook_id) if item["id"] == source_id),
+        None,
+    )
+    if not source or source.get("gridfs_file_id") in (None, "web", "search"):
+        return JSONResponse(content={"error": "Asset not found"}, status_code=404)
+    asset = load_asset(
+        db.download_source_file(source["gridfs_file_id"]),
+        source["file_name"],
+        asset_id,
+    )
+    return Response(content=asset.data, media_type=asset.media_type)
+
+
 @app.post("/notebooks/{notebook_id}/chat")
 async def chat_stream(notebook_id: str, request: Request):
     """SSE streaming RAG chat endpoint."""
@@ -356,6 +438,18 @@ async def chat_stream(notebook_id: str, request: Request):
         full_answer = []
         citations = []
 
+        def asset_loader(source_id, asset_id):
+            source = next(
+                source
+                for source in db.list_sources(notebook_id)
+                if source["id"] == source_id
+            )
+            return load_asset(
+                db.download_source_file(source["gridfs_file_id"]),
+                source["file_name"],
+                asset_id,
+            )
+
         # Check Redis cache first — skip LLM for identical repeat questions
         try:
             cached = get_cached_response(notebook_id, query)
@@ -374,7 +468,11 @@ async def chat_stream(notebook_id: str, request: Request):
             embedding_model = get_embedding_model()
             chat_model = get_chat_model()
             prompt, citations, _ctx, has_context = prepare_answer(
-                embedding_model, query, notebook_id, history=history
+                embedding_model,
+                query,
+                notebook_id,
+                history=history,
+                asset_loader=asset_loader,
             )
 
             if not has_context:

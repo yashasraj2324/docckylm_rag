@@ -9,7 +9,6 @@ Wraps the ingest() function with:
 """
 
 import os
-import tempfile
 import time
 import traceback
 

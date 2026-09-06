@@ -1,4 +1,5 @@
 import json
+import random
 import re
 
 from vectorstore.qdrant_db import (
@@ -33,9 +34,6 @@ Example:
   ]
 }}
 """
-
-import random
-
 
 def generate_flashcards(
     chat_model,
@@ -113,7 +111,7 @@ Generate {num_cards} flashcards now as a JSON array."""
             title = data.get("title", "General Study")
         else:
             flashcards = []
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         print(f"Failed to parse JSON from LLM: {content}")
         # Try to find a JSON object via regex
         match = re.search(r"\{.*\}", content, re.DOTALL)

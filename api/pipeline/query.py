@@ -9,12 +9,15 @@ Handles:
   - Streaming answer generation
 """
 
+import base64
+
 from retrieval.reranker import rerank_documents
 from vectorstore.qdrant_db import (
     ensure_payload_indexes,
     get_vectorstore,
     notebook_filter,
 )
+from vectorstore.visual_qdrant import search_assets
 
 SYSTEM_PROMPT = """You are an academic study assistant creating concise, well-formatted study notes. Base responses strictly on the provided context.
 
@@ -44,9 +47,18 @@ def _format_citation(doc):
     file_name = doc.metadata.get("file_name") or doc.metadata.get("source", "Unknown")
     page = doc.metadata.get("page")
 
-    if page is not None:
-        return f"{file_name} — Page {page}"
-    return file_name
+    citation = f"{file_name} — Page {page}" if page is not None else file_name
+    asset_id = doc.metadata.get("asset_id")
+    if not asset_id:
+        return citation
+    notebook_id = doc.metadata.get("notebook_id")
+    source_id = doc.metadata.get("source_id")
+    asset_url = (
+        f"/api/python/notebooks/{notebook_id}/assets/{source_id}/{asset_id}"
+        if notebook_id and source_id
+        else ""
+    )
+    return f"{citation} — Asset {asset_id}{f' ({asset_url})' if asset_url else ''}"
 
 
 def _format_history(history):
@@ -82,7 +94,9 @@ def _format_history(history):
     return "\n".join(lines)
 
 
-def prepare_answer(embedding_model, query, notebook_id, history=None):
+def prepare_answer(
+    embedding_model, query, notebook_id, history=None, asset_loader=None
+):
     """
     Retrieve relevant context and build the LLM prompt.
 
@@ -105,6 +119,10 @@ def prepare_answer(embedding_model, query, notebook_id, history=None):
     )
 
     docs = retriever.invoke(query)
+    try:
+        docs.extend(search_assets(query, notebook_id))
+    except Exception as error:
+        print(f"[query] Visual retrieval skipped: {error}")
 
     reranked_docs = rerank_documents(query, docs)
 
@@ -119,7 +137,7 @@ def prepare_answer(embedding_model, query, notebook_id, history=None):
     history_block = _format_history(history)
 
     if history_block:
-        prompt = f"""{SYSTEM_PROMPT}
+        prompt_text = f"""{SYSTEM_PROMPT}
 
 Conversation so far:
 {history_block}
@@ -131,7 +149,7 @@ Question: {query}
 
 Answer:"""
     else:
-        prompt = f"""{SYSTEM_PROMPT}
+        prompt_text = f"""{SYSTEM_PROMPT}
 
 Context from sources:
 {context}
@@ -139,6 +157,35 @@ Context from sources:
 Question: {query}
 
 Answer:"""
+
+    visual_content = []
+    if asset_loader:
+        for doc in reranked_docs:
+            asset_id = doc.metadata.get("asset_id")
+            source_id = doc.metadata.get("source_id")
+            if not asset_id or not source_id:
+                continue
+            try:
+                asset = asset_loader(source_id, asset_id)
+                visual_content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": (
+                                f"data:{asset.media_type};base64:"
+                                f"{base64.b64encode(asset.data).decode('ascii')}"
+                            )
+                        },
+                    }
+                )
+            except Exception as error:
+                print(f"[query] Visual asset skipped for {asset_id}: {error}")
+
+    prompt = (
+        [{"role": "user", "content": [{"type": "text", "text": prompt_text}] + visual_content}]
+        if visual_content
+        else prompt_text
+    )
 
     return prompt, citations, context, True
 
