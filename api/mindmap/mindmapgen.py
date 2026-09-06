@@ -2,6 +2,7 @@ import json
 import os
 import random
 
+import logfire
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import AzureChatOpenAI
 from vectorstore.qdrant_db import (
@@ -10,6 +11,7 @@ from vectorstore.qdrant_db import (
     notebook_filter,
     scroll_notebook,
 )
+
 
 MINDMAP_SYSTEM_PROMPT = """You are an expert educational content structurer. 
 Your task is to analyze the provided source material and extract a highly structured, hierarchical Mind Map of the core concepts.
@@ -62,15 +64,24 @@ def generate_mindmap_json(
     """
     Retrieves context from Qdrant and generates a mindmap JSON structure using the chat model.
     """
-    ensure_payload_indexes()
+    with logfire.span(
+        "mindmap.generate",
+        notebook_id=notebook_id,
+        topic=topic,
+        language=language,
+    ):
+        ensure_payload_indexes()
 
+
+    deployment = os.getenv(
+        "AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o-mini"
+    )
     azure_model = AzureChatOpenAI(
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
-        azure_deployment=os.getenv(
-            "AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o-mini"
-        ),
+        azure_deployment=deployment,
+        model=deployment,
     )
 
     docs = []

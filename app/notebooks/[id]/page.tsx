@@ -46,6 +46,7 @@ import {
   deleteFlashcardDeck,
   generateAudioOverview,
   getPodcasts,
+  getAudioUrl,
   savePodcast,
   deletePodcast,
   MindMap,
@@ -1085,7 +1086,7 @@ export default function NotebookDetail() {
                         <div className="mt-3 pl-12 pr-4">
                           <audio
                             controls
-                            src={podcast.audio_url}
+                            src={podcast.audio_url || getAudioUrl(podcast.gridfs_file_id)}
                             className="w-full h-10"
                           />
                         </div>

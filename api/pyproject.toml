@@ -1,0 +1,30 @@
+[project]
+name = "api"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "firecrawl-py>=4.41.0",
+    "langchain-nvidia-ai-endpoints>=1.4.3",
+    "langchain-openai>=1.6.0",
+    "langchain-pymupdf4llm>=1.28.0",
+    "langchain-qdrant>=1.1.0",
+    "langchain-sarvamcloud>=0.1.2",
+    "langchain-text-splitters>=1.1.2",
+    "logfire[fastapi,httpx,pymongo,redis,requests]>=5.0.0",
+    "markitdown[pptx]>=0.1.7",
+    "openinference-instrumentation-langchain>=0.1.74",
+    "pydantic-evals[logfire]>=2.40.0",
+    "pymongo>=4.18.0",
+    "pymupdf>=1.24",
+    "pypandoc>=1.17",
+    "python-dotenv>=1.2.3",
+    "python-multipart>=0.0.32",
+    "qdrant-client>=1.19.0",
+    "rapidocr-onnxruntime>=1.4",
+    "redis>=8.1.0",
+    "sarvamai>=0.1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+]

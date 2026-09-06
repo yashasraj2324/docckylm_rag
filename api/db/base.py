@@ -6,7 +6,6 @@ don't need changes beyond the import statement.
 """
 
 from typing import Any
-from uuid import uuid4
 from bson import ObjectId
 
 from db.mongo_client import build_client
@@ -133,6 +132,15 @@ class Database:
         """Download a source file from GridFS (used by retry endpoint)."""
         return download_file(self.pdf_bucket, gridfs_file_id)
 
+    def download_podcast_file(self, gridfs_file_id: str) -> bytes:
+        """Download generated podcast audio from the podcasts GridFS bucket."""
+        try:
+            return download_file(self.audio_bucket, gridfs_file_id)
+        except Exception:
+            # Older podcast records were accidentally written to the source
+            # bucket; keep them playable while new files use podcasts_fs.
+            return download_file(self.pdf_bucket, gridfs_file_id)
+
     # Messages
 
     def save_message(
@@ -204,4 +212,4 @@ class Database:
     # Utilities
 
     def next_source_id(self) -> str:
-        return str(uuid4())
+        return str(ObjectId())

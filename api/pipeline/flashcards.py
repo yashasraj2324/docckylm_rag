@@ -2,12 +2,15 @@ import json
 import random
 import re
 
+import logfire
+
 from vectorstore.qdrant_db import (
     ensure_payload_indexes,
     get_vectorstore,
     notebook_filter,
     scroll_notebook,
 )
+
 
 SYSTEM_PROMPT = """You are an academic study assistant creating flashcards for memorization.
 You will be provided with some context extracted from the user's documents.
@@ -44,7 +47,15 @@ def generate_flashcards(
     num_cards,
     source_ids=None,
 ):
-    ensure_payload_indexes()
+    with logfire.span(
+        "flashcards.generate",
+        topic=topic,
+        difficulty=difficulty,
+        num_cards=num_cards,
+        notebook_id=notebook_id,
+    ):
+        ensure_payload_indexes()
+
 
     docs = []
     if topic and topic.strip():

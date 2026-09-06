@@ -133,9 +133,9 @@ venv\Scripts\activate
 # 3. Install the required Python packages
 pip install -r requirements.txt
 
-# 4. Start the FastAPI server (runs on port 5328 by default)
+# 4. Start the FastAPI server (runs on port 8001 by default)
 npm run backend
-# Alternatively run: uvicorn api.index:app --host 0.0.0.0 --port 5328 --reload
+# Alternatively run: uvicorn api.index:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ### Step 3: Frontend Setup (Next.js)

@@ -12,6 +12,8 @@ import os
 import time
 import traceback
 
+import logfire
+
 
 def _ingest_with_retry(
     embedding_model,
@@ -31,7 +33,7 @@ def _ingest_with_retry(
     """
     from pipeline.ingest import ingest
 
-    last_error = None
+    last_error: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
             ingest(embedding_model, file_path, original_file_name, notebook_id, source_id)
@@ -51,7 +53,9 @@ def _ingest_with_retry(
                     f"Final error: {exc}"
                 )
 
-    raise last_error
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"Ingestion failed for source {source_id}")
 
 
 def _ingest_web_with_retry(
@@ -66,7 +70,7 @@ def _ingest_web_with_retry(
     """Web URL ingestion with retry — same backoff strategy."""
     from web.ingest import ingest_web_url
 
-    last_error = None
+    last_error: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
             ingest_web_url(embedding_model, url, notebook_id, source_id)
@@ -86,7 +90,9 @@ def _ingest_web_with_retry(
                     f"Final error: {exc}"
                 )
 
-    raise last_error
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"Web ingestion failed for source {source_id}")
 
 
 def process_file_source(db, embedding_model, temp_path, file_name, notebook_id, source_id):
@@ -96,23 +102,30 @@ def process_file_source(db, embedding_model, temp_path, file_name, notebook_id, 
     Handles: retry → status update → auto-naming → temp cleanup.
     Designed to be called from a background thread.
     """
-    try:
-        _ingest_with_retry(embedding_model, temp_path, file_name, notebook_id, source_id)
-        db.update_source_status(source_id, "ready")
-
-        # Auto-name if it's the first upload
-        _try_auto_name(db, notebook_id)
-
-    except Exception as exc:
-        print(f"[ingest] File ingestion permanently failed for source {source_id}: {exc}")
-        traceback.print_exc()
-        db.update_source_status(source_id, "failed")
-    finally:
+    with logfire.span(
+        "worker.process_file_source",
+        file_name=file_name,
+        source_id=source_id,
+        notebook_id=notebook_id,
+    ):
         try:
-            if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
-        except Exception:
-            pass
+            _ingest_with_retry(embedding_model, temp_path, file_name, notebook_id, source_id)
+            db.update_source_status(source_id, "ready")
+
+            # Auto-name if it's the first upload
+            _try_auto_name(db, notebook_id)
+
+        except Exception as exc:
+            logfire.error(f"File ingestion failed: {exc}")
+            print(f"[ingest] File ingestion permanently failed for source {source_id}: {exc}")
+            traceback.print_exc()
+            db.update_source_status(source_id, "failed")
+        finally:
+            try:
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except Exception:
+                pass
 
 
 def process_web_source(db, embedding_model, url, notebook_id, source_id):
@@ -122,16 +135,23 @@ def process_web_source(db, embedding_model, url, notebook_id, source_id):
     Handles: retry → status update → auto-naming.
     Designed to be called from a background thread.
     """
-    try:
-        _ingest_web_with_retry(embedding_model, url, notebook_id, source_id)
-        db.update_source_status(source_id, "ready")
+    with logfire.span(
+        "worker.process_web_source",
+        url=url,
+        source_id=source_id,
+        notebook_id=notebook_id,
+    ):
+        try:
+            _ingest_web_with_retry(embedding_model, url, notebook_id, source_id)
+            db.update_source_status(source_id, "ready")
 
-        _try_auto_name(db, notebook_id)
+            _try_auto_name(db, notebook_id)
 
-    except Exception as exc:
-        print(f"[ingest] Web ingestion permanently failed for source {source_id}: {exc}")
-        traceback.print_exc()
-        db.update_source_status(source_id, "failed")
+        except Exception as exc:
+            logfire.error(f"Web ingestion failed: {exc}")
+            print(f"[ingest] Web ingestion permanently failed for source {source_id}: {exc}")
+            traceback.print_exc()
+            db.update_source_status(source_id, "failed")
 
 
 def process_search_results(db, embedding_model, results, notebook_id):
@@ -140,17 +160,23 @@ def process_search_results(db, embedding_model, results, notebook_id):
 
     Each URL is retried independently — one bad URL won't block the others.
     """
-    for item in results:
-        source_id = item["source"]["id"]
-        url = item["result_data"]["url"]
-        try:
-            _ingest_web_with_retry(embedding_model, url, notebook_id, source_id)
-            db.update_source_status(source_id, "ready")
-        except Exception as exc:
-            print(f"[ingest] Search result ingestion failed for source {source_id}: {exc}")
-            db.update_source_status(source_id, "failed")
+    with logfire.span(
+        "worker.process_search_results",
+        notebook_id=notebook_id,
+        count=len(results),
+    ):
+        for item in results:
+            source_id = item["source"]["id"]
+            url = item["result_data"]["url"]
+            try:
+                _ingest_web_with_retry(embedding_model, url, notebook_id, source_id)
+                db.update_source_status(source_id, "ready")
+            except Exception as exc:
+                print(f"[ingest] Search result ingestion failed for source {source_id}: {exc}")
+                db.update_source_status(source_id, "failed")
 
-    _try_auto_name(db, notebook_id)
+        _try_auto_name(db, notebook_id)
+
 
 
 def _try_auto_name(db, notebook_id):

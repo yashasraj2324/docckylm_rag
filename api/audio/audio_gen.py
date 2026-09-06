@@ -1,6 +1,8 @@
 import os
 import re
 
+from sarvamai import SarvamAI
+
 # Map our app's language names to Sarvam language codes
 LANGUAGE_MAP = {
     "English": "en-IN",
@@ -122,15 +124,22 @@ def generate_podcast_audio(script_text, language="English"):
         )
 
     dialogue = parse_podcast_script(script_text)
-    target_language_code = LANGUAGE_MAP.get(language, "en-IN")
-
-    import base64
-
-    import requests
+    language_code = LANGUAGE_MAP.get(language, "en-IN")
 
     # Dynamically assign voices based on appearance order
     # to handle translated names like "ಜೇಕ್" (Jake) in regional languages
     speaker_voices = {}
+    model = os.getenv("SARVAM_TTS_MODEL", "bulbul:v3")
+    timeout = float(os.getenv("SARVAM_TTS_TIMEOUT", "60"))
+    # Slower, calmer pace (1.0 = neutral) makes the podcast feel less rushed.
+    pace = float(os.getenv("SARVAM_TTS_PACE", "0.95"))
+    # Pitch and loudness per speaker to add natural contrast between hosts.
+    voice_profile = {
+        "shubh": {"pitch": -0.5, "loudness": 1.0},   # slightly lower, neutral volume
+        "shruti": {"pitch": 0.4, "loudness": 1.05},  # slightly higher, a touch louder
+    }
+    audio_generated = False
+    client = SarvamAI(api_subscription_key=api_key, timeout=timeout)
 
     for line in dialogue:
         speaker = line["speaker"]
@@ -145,37 +154,34 @@ def generate_podcast_audio(script_text, language="English"):
                 speaker_voices[speaker] = "shruti"  # Host 2 / fallback
 
         voice_id = speaker_voices[speaker]
+        profile = voice_profile.get(voice_id, {})
         chunks = split_text_into_chunks(full_text, max_length=450)
 
         for text_chunk in chunks:
             try:
-                headers = {
-                    "api-subscription-key": api_key,
-                    "Content-Type": "application/json",
-                }
-                payload = {
-                    "inputs": [text_chunk],
-                    "target_language_code": target_language_code,
-                    "speaker": voice_id,
-                    "pace": 1.15,  # Increased pace for a more energetic podcast feel
-                    "model": "bulbul:v3",
-                    "output_audio_codec": "mp3",  # Directly request MP3
-                }
-
-                response = requests.post(
-                    "https://api.sarvam.ai/text-to-speech",
-                    headers=headers,
-                    json=payload,
+                response = client.text_to_speech.convert(
+                    text=text_chunk,
+                    language_code=language_code,
+                    speaker=voice_id,
+                    pace=pace,
+                    pitch=profile.get("pitch"),
+                    loudness=profile.get("loudness"),
+                    enable_preprocessing=True,
+                    model=model,
+                    output_audio_codec="mp3",
                 )
 
-                if response.ok:
-                    data = response.json()
-                    if "audios" in data and len(data["audios"]) > 0:
-                        audio_bytes = base64.b64decode(data["audios"][0])
+                if response.audios:
+                    import base64
+
+                    audio_bytes = base64.b64decode(response.audios[0])
+                    if audio_bytes:
+                        audio_generated = True
                         yield audio_bytes
-                else:
-                    print(f"Error from Sarvam API for {speaker}: {response.text}")
 
             except Exception as e:
                 print(f"Error synthesizing speech for {speaker}: {e}")
                 continue
+
+    if not audio_generated:
+        raise RuntimeError("Sarvam AI did not return any podcast audio.")
