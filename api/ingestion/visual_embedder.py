@@ -7,6 +7,7 @@ from ingestion.models import Asset
 
 
 DEFAULT_MODEL = "nvidia/llama-nemotron-embed-vl-1b-v2:free"
+DEFAULT_TIMEOUT = 10
 
 
 def _request_embedding(content):
@@ -29,7 +30,8 @@ def _request_embedding(content):
         },
         method="POST",
     )
-    with urlopen(request, timeout=60) as response:
+    timeout = int(os.getenv("OPENROUTER_EMBEDDING_TIMEOUT", str(DEFAULT_TIMEOUT)))
+    with urlopen(request, timeout=timeout) as response:
         body = json.loads(response.read())
     return body["data"][0]["embedding"]
 

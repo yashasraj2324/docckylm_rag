@@ -197,7 +197,11 @@ def extract_multimodal_chunks(
         model = None
         model_name = None
         for asset in assets:
-            ocr_text = _extract_ocr_text(asset)
+            try:
+                ocr_text = _extract_ocr_text(asset)
+            except Exception as error:
+                print(f"[ingest] OCR skipped for {asset.asset_id}: {error}")
+                ocr_text = ""
             if ocr_text:
                 metadata = {
                     "asset_id": asset.asset_id,
@@ -220,14 +224,18 @@ def extract_multimodal_chunks(
                 asset.caption = _describe_asset(model, model_name, asset)
             except Exception as error:
                 print(f"[ingest] Vision description skipped for {asset.asset_id}: {error}")
-                continue
 
-            metadata = {"asset_id": asset.asset_id, "modality": asset.modality}
+            metadata = {
+                "asset_id": asset.asset_id,
+                "modality": asset.modality,
+                "extraction": "vision" if asset.caption else "asset",
+            }
             if asset.page is not None:
                 metadata["page"] = asset.page
+            content = asset.caption or ocr_text or "Visual asset"
             chunks.append(
                 MultimodalChunk(
-                    content=f"Visual content: {asset.caption}",
+                    content=f"Visual content: {content}",
                     modality=asset.modality,
                     metadata=metadata,
                     asset=asset,

@@ -37,7 +37,7 @@ from db.sources import (
     delete_storage_prefix,
     list_sources,
     update_source_status,
-    upload_pdf,
+    upload_source,
 )
 from db.gridfs_client import download_file
 
@@ -105,7 +105,7 @@ class Database:
     def delete_source_row(self, source_id: str) -> None:
         delete_source_row(self.db, source_id)
 
-    def upload_pdf(
+    def upload_source(
         self,
         notebook_id: str,
         source_id: str,
@@ -113,7 +113,7 @@ class Database:
         data: bytes,
         content_type: str = "application/pdf",
     ) -> str:
-        return upload_pdf(
+        return upload_source(
             self.pdf_bucket,
             self.user_id,
             notebook_id,

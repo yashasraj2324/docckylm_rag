@@ -65,6 +65,7 @@ The project is split into two heavily decoupled layers: a React-based frontend a
 - **Object Storage**: **GridFS** stores uploaded PDFs and generated podcast MP3s in chunked collections.
 - **Cache & Queue**: **Redis** provides response caching for RAG queries and cache invalidation on source changes.
 - **Vector Database**: **Qdrant** stores and indexes document embeddings for ultra-fast semantic search.
+- **Visual Retrieval**: Set `ENABLE_VISUAL_RETRIEVAL=false` to disable image-vector search, or configure `OPENROUTER_EMBEDDING_TIMEOUT` (default `10` seconds) to bound its query-time API wait.
 - **Audio Engine**: **Sarvam AI API** handles the text-to-speech generation.
 
 ---
