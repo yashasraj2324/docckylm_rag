@@ -10,6 +10,12 @@ from vectorstore.qdrant_db import (
 )
 
 
+class DummyDoc:
+    """Lightweight wrapper for page content from Qdrant records."""
+    def __init__(self, page_content):
+        self.page_content = page_content
+
+
 def generate_podcast_script(
     chat_model,
     embedding_model,
@@ -46,11 +52,6 @@ def generate_podcast_script(
         # Retrieve random chunks from the notebook
         records = scroll_notebook(notebook_id, limit=100, source_ids=source_ids)
 
-        class DummyDoc:
-            def __init__(self, page_content):
-                self.page_content = page_content
-
-        # Randomly sample up to 8 records
         sampled_records = random.sample(records, min(len(records), 8))
         for record in sampled_records:
             content = (record.payload or {}).get("page_content", "")

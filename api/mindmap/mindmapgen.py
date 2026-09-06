@@ -49,6 +49,13 @@ Please generate the complete, hierarchical mind map JSON based ONLY on the sourc
 CRITICAL REQUIREMENT: Output strictly valid JSON. Do not output anything else.
 """
 
+
+class DummyDoc:
+    """Lightweight wrapper for page content from Qdrant records."""
+    def __init__(self, page_content):
+        self.page_content = page_content
+
+
 def generate_mindmap_json(
     embedding_model, notebook_id, topic=None, language="English", source_ids=None
 ):
@@ -79,10 +86,6 @@ def generate_mindmap_json(
     else:
         # Retrieve random chunks from the notebook
         records = scroll_notebook(notebook_id, limit=50, source_ids=source_ids)
-
-        class DummyDoc:
-            def __init__(self, page_content):
-                self.page_content = page_content
 
         sampled_records = random.sample(records, min(len(records), 4))
         for record in sampled_records:

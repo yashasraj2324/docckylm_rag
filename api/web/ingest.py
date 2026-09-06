@@ -1,19 +1,12 @@
 from ingestion.splitter import split_documents
 from vectorstore.qdrant_db import ensure_payload_indexes, ingest_documents
-from web.loader import load_search, load_url
+from web.loader import load_url
 
 
 def ingest_web_url(embedding_model, url, notebook_id, source_id):
     ensure_payload_indexes()
     docs = load_url(url)
     chunks = split_documents(docs, url, notebook_id, source_id)
-    ingest_documents(chunks, embedding_model)
-
-
-def ingest_web_search(embedding_model, query, notebook_id, source_id):
-    ensure_payload_indexes()
-    docs = load_search(query)
-    chunks = split_documents(docs, f"Search: {query}", notebook_id, source_id)
     ingest_documents(chunks, embedding_model)
 
 

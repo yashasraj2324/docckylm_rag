@@ -70,7 +70,3 @@ def fetch_search_results(query: str):
             parsed.append({"url": url, "title": title})
     # Return top 3 results to avoid overloading the background worker
     return parsed[:3]
-
-
-def load_search(query: str):
-    return []
