@@ -126,7 +126,19 @@ CASES: list[EvalCase] = [
         query="How does the Transformer big model compare to ConvS2S and GNMT in both BLEU score and training cost?",
         expected_answer_keywords=["28.4 BLEU", "ConvS2S", "GNMT", "3.3×10¹⁸ FLOPs", "2.3×10¹⁹ FLOPs"],
         expected_source_files=["1706.03762v7.pdf"],
-        expected_pages=[8],
+        # Multi-page: ConvS2S and GNMT are introduced as related work on pages 1-2;
+        # BLEU scores and FLOPs for all three models are in Table 2 on page 8.
+        expected_pages=[1, 2, 8],
+        category="multi-hop",
+    ),
+    EvalCase(
+        id="multi-hop-transformer-complexity-tradeoff",
+        query="The Transformer has O(n²·d) complexity for self-attention. How does this theoretical complexity affect its training cost compared to recurrent models, and what does the paper say about its parallelizability advantage?",
+        expected_answer_keywords=["O(n²·d)", "O(n·d²)", "parallelization", "3.3×10¹⁸ FLOPs", "8 P100 GPUs"],
+        expected_source_files=["1706.03762v7.pdf"],
+        # Requires combining: architecture description (page 3), complexity analysis
+        # (page 6), training data/baselines (page 7), and BLEU/FLOP results (page 8).
+        expected_pages=[3, 6, 7, 8],
         category="multi-hop",
     ),
     # ---------------------------------------------------------------- visual

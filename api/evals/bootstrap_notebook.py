@@ -15,8 +15,6 @@ _api_dir = _script_dir.parent
 if str(_api_dir) not in sys.path:
     sys.path.insert(0, str(_api_dir))
 
-from bson import ObjectId
-
 from db import Database
 from ingestion.embedder import get_embedding_model
 from pipeline.ingest_worker import process_file_source

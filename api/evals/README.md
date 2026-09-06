@@ -1,6 +1,6 @@
 # AI Notebooks — Evaluation Dataset
 
-This directory contains a **manually curated golden dataset** of 21 evaluation
+This directory contains a **manually curated golden dataset** of 22 evaluation
 cases used to test the RAG pipeline (retrieval + answer generation + citation
 quality).
 
@@ -26,9 +26,9 @@ The 21 cases split into 4 categories per the project spec:
 
 | Category | Count | What it tests |
 |---|---|---|
-| `factual` | 5 | Single-fact lookup (e.g. "What is `d_model`?") |
-| `summarization` | 4 | Synthesize a section or concept |
-| `multi-hop` | 4 | Combine information from multiple sections/pages |
+| `factual` | 6 | Single-fact lookup (e.g. "What is `d_model`?") |
+| `summarization` | 5 | Synthesize a section or concept |
+| `multi-hop` | 5 | Combine information from multiple sections/pages |
 | `visual` | 5 | Answer requires reading a figure/table/diagram |
 | `adversarial` (subset) | 3 | Topic is NOT in the PDFs — pipeline should refuse to answer |
 
@@ -95,7 +95,7 @@ All sources should eventually show `"status": "ready"` in the GET response.
 ```python
 from evals.golden_dataset import CASES, EvalCase
 
-print(f"{len(CASES)} cases total")  # 21
+print(f"{len(CASES)} cases total")  # 22
 
 # Group by category
 from collections import Counter
