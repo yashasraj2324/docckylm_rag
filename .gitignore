@@ -121,6 +121,6 @@ inspect/
 *.debug
 *.inspect
 *test*.py
+api/evals/.test_notebook.json
 *debug*.py
 *inspect*.py
-
