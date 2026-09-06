@@ -51,7 +51,7 @@ from evals.prompts import ANSWER_RELEVANCE_PROMPT, FAITHFULNESS_PROMPT
 
 from ingestion.embedder import get_embedding_model
 from llm.chat_model import get_chat_model
-from pipeline.query import prepare_answer, stream_answer
+from pipeline.query import context_supports_query, prepare_answer, stream_answer
 
 EVAL_DIR = _script_dir
 CONFIG_PATH = EVAL_DIR / ".test_notebook.json"
@@ -247,6 +247,18 @@ def evaluate_case(
     if not has_context:
         # No context retrieved at all
         result.is_refusal = True
+        return result
+
+    if not context_supports_query(chat_model, case.query, context):
+        result.is_refusal = True
+        if case.is_adversarial:
+            result.relevance = 1.0
+            result.citation_accuracy = 1.0
+            result.keyword_coverage = 1.0
+        else:
+            result.relevance = 0.0
+            result.citation_accuracy = 0.0
+            result.keyword_coverage = 0.0
         return result
 
     # Stream the answer

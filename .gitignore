@@ -95,6 +95,9 @@ cover/
 
 # Environments
 .env
+.env.*
+!.env.example
+!**/.env.example
 .venv
 env/
 venv/
@@ -121,6 +124,6 @@ inspect/
 *.debug
 *.inspect
 *test*.py
+api/evals/.test_notebook.json
 *debug*.py
 *inspect*.py
-

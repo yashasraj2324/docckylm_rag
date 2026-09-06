@@ -22,6 +22,12 @@ def rerank_documents(query, docs):
         try:
             ranked_docs = reranker.compress_documents(documents=docs, query=query)
         except Exception as err:
-            logfire.warn(f"Reranking fallback triggered: {err}")
+            logfire.warn("Reranking fallback triggered", error=str(err))
             return docs
+    # Keep the dense retriever's strongest candidate available. The NVIDIA
+    # reranker can over-prefer abstract prose or section headings and remove
+    # the only factual chunk needed to answer a query.
+    if docs and ranked_docs and docs[0] not in ranked_docs:
+        ranked_docs = [*ranked_docs[:-1], docs[0]]
+
     return ranked_docs

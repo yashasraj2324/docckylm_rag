@@ -37,7 +37,8 @@ SYSTEM_PROMPT = """You are an academic study assistant creating concise, well-fo
 - Use clear, direct language
 - Organize logically with headers
 - Include specific examples from the source
-- State if information is insufficient
+- If the context does not answer the question, say exactly: "I couldn't find relevant information in your sources."
+- Never answer from general knowledge or infer facts that are not supported by the context
 
 ---"""
 
@@ -208,6 +209,24 @@ Answer:"""
     )
 
     return prompt, citations, context, True
+
+
+def context_supports_query(chat_model, query, context):
+    """Use the configured model to reject retrieved context that is off-topic."""
+    if not context:
+        return False
+
+    response = chat_model.invoke(
+        f"""Determine whether the context contains enough information to answer the question.
+Reply with only YES or NO.
+
+Question: {query}
+
+Context:
+{context}
+"""
+    )
+    return response.content.strip().upper().startswith("YES")
 
 
 def ask(

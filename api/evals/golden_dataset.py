@@ -183,9 +183,15 @@ CASES: list[EvalCase] = [
         category="visual",
     ),
     # ---------------------------------------------------------- adversarial
+    # These queries are deliberately about topics NOT covered in either source paper.
+    # The retriever should return NO relevant chunks, causing prepare_answer to set
+    # has_context=False and the pipeline to return a refusal.
+    # We avoid query terms that appear in ML papers (e.g. "language model",
+    # "training", "attention", "transformer") — they would cause the retriever to
+    # return spurious chunks and the LLM to hallucinate.
     EvalCase(
-        id="adversarial-bert-conclusions",
-        query="What are the main conclusions of the BERT paper?",
+        id="adversarial-fifa-world-cup",
+        query="Who won the FIFA World Cup in 2018?",
         expected_answer_keywords=[],
         expected_source_files=[],
         expected_pages=None,
@@ -193,8 +199,8 @@ CASES: list[EvalCase] = [
         is_adversarial=True,
     ),
     EvalCase(
-        id="adversarial-resnet-vit",
-        query="What does the ResNet paper say about Vision Transformers (ViT)?",
+        id="adversarial-australia-capital",
+        query="What is the capital city of Australia?",
         expected_answer_keywords=[],
         expected_source_files=[],
         expected_pages=None,
@@ -202,8 +208,8 @@ CASES: list[EvalCase] = [
         is_adversarial=True,
     ),
     EvalCase(
-        id="adversarial-llm-economics",
-        query="What are the economic implications of large language models?",
+        id="adversarial-water-boiling-point",
+        query="What is the boiling point of water at sea level?",
         expected_answer_keywords=[],
         expected_source_files=[],
         expected_pages=None,

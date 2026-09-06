@@ -10,7 +10,7 @@ from cache.redis_client import (
 from ingestion.embedder import get_embedding_model
 from ingestion.extractor import load_asset
 from llm.chat_model import get_chat_model
-from pipeline.query import prepare_answer, stream_answer
+from pipeline.query import context_supports_query, prepare_answer, stream_answer
 from routes.dependencies import get_db
 
 
@@ -84,7 +84,7 @@ async def chat_stream(notebook_id: str, request: Request):
                 asset_loader=asset_loader,
             )
 
-            if not has_context:
+            if not has_context or not context_supports_query(chat_model, query, _ctx):
                 no_ctx = "I couldn't find relevant information in your sources. Please add PDFs and try again."
                 yield f"data: {json.dumps({'type': 'chunk', 'content': no_ctx})}\n\n"
                 full_answer.append(no_ctx)
