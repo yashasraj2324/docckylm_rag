@@ -498,3 +498,1550 @@ export default function NotebookDetail() {
   const handleWebsiteUpload = () => {
     setShowWebsiteModal(true);
   };
+
+  const handleWebsiteSubmit = async () => {
+    if (!id || !websiteUrls.trim()) return;
+
+    // Split by whitespace or newlines and filter out empty strings
+    const urls = websiteUrls.split(/\s+/).filter((u) => u.trim() !== "");
+    if (urls.length === 0) return;
+
+    setUploading(true);
+    try {
+      // Upload sequentially for now
+      for (const url of urls) {
+        const newSource = await addWebsiteSource(id, url);
+        setSources((prev) => [newSource, ...prev]);
+        setSelectedSources((prev) => {
+          const next = new Set(prev);
+          next.add(newSource.id);
+          return next;
+        });
+      }
+      setShowWebsiteModal(false);
+      setShowAddSourcesModal(false);
+      setWebsiteUrls("");
+    } catch (e) {
+      alert(
+        e instanceof Error ? e.message : "Upload failed for one or more URLs",
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleWebSearch = async () => {
+    if (!id || !searchQuery.trim()) return;
+
+    setUploading(true);
+    try {
+      const newSources = await addSearchSource(id, searchQuery);
+      setSources((prev) => [...newSources, ...prev]);
+      setSelectedSources((prev) => {
+        const next = new Set(prev);
+        newSources.forEach((s) => next.add(s.id));
+        return next;
+      });
+      setShowAddSourcesModal(false);
+      setSearchQuery("");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Search failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // ── Chat handlers ─────────────────────────────────────────────────────────
+
+  // Load message history
+  useEffect(() => {
+    if (!id) return;
+    getMessages(id).then(setMessages).catch(console.error);
+  }, [id]);
+
+  // Auto-scroll to bottom whenever messages/streaming content changes
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, streamingContent]);
+
+
+  // A stable onDone that captures the latest streamed state
+  const streamingContentRef = useRef("");
+  const streamingCitationsRef = useRef<string[]>([]);
+  useEffect(() => {
+    streamingContentRef.current = streamingContent;
+  }, [streamingContent]);
+  useEffect(() => {
+    streamingCitationsRef.current = streamingCitations;
+  }, [streamingCitations]);
+
+  const handleSendStable = useCallback(() => {
+    if (!inputValue.trim() || isStreaming || !id) return;
+    const query = inputValue.trim();
+    setInputValue("");
+    setIsStreaming(true);
+    setStreamingContent("");
+    setStreamingCitations([]);
+    streamingContentRef.current = "";
+    streamingCitationsRef.current = [];
+
+    setMessages((prev) => [...prev, { role: "user", content: query }]);
+
+    abortCtrlRef.current = streamChat(
+      id,
+      query,
+      (chunk) => {
+        streamingContentRef.current += chunk;
+        setStreamingContent((prev) => prev + chunk);
+      },
+      (citations) => {
+        streamingCitationsRef.current = citations;
+        setStreamingCitations(citations);
+      },
+      () => {
+        const finalContent = streamingContentRef.current;
+        const finalCitations = streamingCitationsRef.current;
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: finalContent, sources: finalCitations },
+        ]);
+        setStreamingContent("");
+        setStreamingCitations([]);
+        setIsStreaming(false);
+      },
+      (err) => {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `⚠️ ${err}` },
+        ]);
+        setStreamingContent("");
+        setIsStreaming(false);
+      },
+    );
+  }, [inputValue, isStreaming, id]);
+
+  return (
+    <div className="h-screen bg-ink text-white flex overflow-hidden">
+      {/* Left Sidebar - Sources */}
+      {leftSidebarOpen && (
+        <div className="w-80 border-r border-ink-border flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-ink-border">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-medium">Sources</h2>
+              <button className="p-1 hover:bg-ink-soft rounded">
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+            </div>
+            <button
+              className="w-full px-4 py-2 bg-ink-soft hover:bg-ink-border rounded-lg text-sm flex items-center gap-2"
+              onClick={() => setShowAddSourcesModal(true)}
+            >
+              <Plus className="w-4 h-4" />
+              Add sources
+            </button>
+          </div>
+
+          <div className="p-4 border-b border-ink-border">
+            <div className="text-xs text-paper-dark mb-2">
+              Search the web for new sources
+            </div>
+            <div className="flex items-center gap-2 bg-ink-soft rounded-lg px-3 py-2">
+              <Search className="w-4 h-4 text-paper-dark" />
+              <input
+                type="text"
+                placeholder=""
+                className="bg-transparent border-none outline-none flex-1 text-sm"
+              />
+            </div>
+          </div>
+
+          {loadingSources ? (
+            <div className="flex-1 flex items-center justify-center p-8 text-paper-dark">
+              Loading sources...
+            </div>
+          ) : sources.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center p-8">
+              <div className="text-center text-paper-dark">
+                <FileText className="w-12 h-12 mx-auto mb-3 text-ink-muted" />
+                <p className="text-sm">Saved sources will appear here</p>
+                <p className="text-xs mt-2">
+                  Click Add Sources above to add PDFs, links, or other files. Or
+                  simply paste a link to any YouTube video or website to quickly
+                  save them to your sources.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {sources.map((source) => (
+                <div
+                  key={source.id}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-ink-soft/50 group border-b border-ink-border/50 cursor-pointer"
+                  onClick={() => toggleSourceSelection(source.id)}
+                >
+                  {/* Checkbox */}
+                  <div
+                    className={`w-4 h-4 rounded flex items-center justify-center shrink-0 transition-colors ${selectedSources.has(source.id) ? "bg-azure border border-azure" : "border border-ink-muted"}`}
+                  >
+                    {selectedSources.has(source.id) && (
+                      <Check className="w-3 h-3 text-white" />
+                    )}
+                  </div>
+
+                  {/* Icon & Name */}
+                  <div className="w-8 h-8 rounded bg-ink-soft flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4 text-paper-dark" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate" title={source.file_name}>
+                      {source.file_name}
+                    </p>
+                    <p className="text-xs text-paper-dark capitalize">
+                      {source.status}
+                    </p>
+                  </div>
+
+                  {/* More options */}
+                  <div className="relative shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenSourceDropdown(
+                          openSourceDropdown === source.id ? null : source.id,
+                        );
+                      }}
+                      className="p-1.5 hover:bg-ink-border rounded opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                    {openSourceDropdown === source.id && (
+                      <div className="absolute right-0 top-full mt-1 w-32 bg-ink-soft rounded-lg shadow-lg border border-ink-border z-50 overflow-hidden">
+                        <button
+                          onClick={(e) => handleDeleteSource(e, source.id)}
+                          className="w-full text-left px-4 py-2 text-sm text-gold-dark hover:bg-ink-border"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="p-4 border-t border-ink-border">
+            <div className="flex items-center gap-2">
+              <button className="flex-1 px-3 py-2 bg-ink-soft hover:bg-ink-border rounded-lg text-sm">
+                Sources
+              </button>
+              <button className="flex-1 px-3 py-2 hover:bg-ink-soft rounded-lg text-sm">
+                Chat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
+        {/* Top Bar */}
+        <div className="border-b border-ink-border px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              className="p-1 hover:bg-ink-soft rounded"
+              onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+
+          </div>
+
+          <div className="flex items-center gap-2">
+
+            <button
+              className="flex items-center gap-1.5 px-2 py-1 hover:bg-ink-soft rounded text-xs text-paper-dark disabled:opacity-50"
+              onClick={handleDownloadPdf}
+              disabled={isDownloadingPdf || messages.length === 0}
+              title="Download Chat as PDF"
+            >
+              {isDownloadingPdf ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden sm:inline">PDF</span>
+            </button>
+            <button
+              className="p-1 hover:bg-ink-soft rounded"
+              onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+            >
+              <PanelRightClose className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Chat Area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-6">
+            <div ref={chatContainerRef} className="space-y-6 pb-4">
+              {messages.length === 0 && !isStreaming && (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <div className="text-6xl mb-6">👋</div>
+                  <h1 className="text-3xl mb-4">
+                    Let's start your notebook...
+                  </h1>
+                  <p className="text-paper-dark max-w-md">
+                    Ask a question about your sources. Upload PDFs in the left
+                    sidebar to get started.
+                  </p>
+                </div>
+              )}
+
+              {messages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  {msg.role === "assistant" && (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-azure to-azure flex items-center justify-center text-sm shrink-0 mt-1">
+                      AI
+                    </div>
+                  )}
+                  <div
+                    className={`max-w-[75%] ${msg.role === "user" ? "order-first" : ""}`}
+                  >
+                    <div
+                      className={`rounded-2xl px-4 py-3 text-sm ${
+                        msg.role === "user"
+                          ? "bg-azure text-white rounded-br-sm ml-auto leading-relaxed"
+                          : "bg-ink-soft text-paper rounded-bl-sm ai-prose"
+                      }`}
+                    >
+                      {msg.role === "user" ? (
+                        msg.content
+                      ) : (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      )}
+                    </div>
+                    {msg.role === "assistant" &&
+                      msg.sources &&
+                      msg.sources.length > 0 && (
+                        <MessageCitations citations={msg.sources} />
+                      )}
+                  </div>
+                  {msg.role === "user" && (
+                    <div className="w-8 h-8 rounded-full bg-ink-border flex items-center justify-center text-sm shrink-0 mt-1">
+                      U
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Streaming bubble */}
+              {isStreaming && (
+                <div className="flex gap-3 justify-start">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-azure to-azure flex items-center justify-center text-sm shrink-0 mt-1">
+                    AI
+                  </div>
+                  <div className="max-w-[75%]">
+                    <div className="bg-ink-soft text-paper rounded-2xl rounded-bl-sm px-4 py-3 text-sm ai-prose">
+                      {streamingContent ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {streamingContent}
+                        </ReactMarkdown>
+                      ) : (
+                        <span className="flex items-center gap-1 text-paper-dark">
+                          <span className="w-2 h-2 bg-azure-light rounded-full animate-bounce [animation-delay:-0.3s]" />
+                          <span className="w-2 h-2 bg-azure-light rounded-full animate-bounce [animation-delay:-0.15s]" />
+                          <span className="w-2 h-2 bg-azure-light rounded-full animate-bounce" />
+                        </span>
+                      )}
+                    </div>
+                    {streamingCitations.length > 0 && (
+                      <MessageCitations citations={streamingCitations} />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div ref={chatEndRef} />
+            </div>
+          </div>
+
+          {/* Input Bar */}
+          <div className="border-t border-ink-border p-4">
+            <div className="max-w-3xl mx-auto relative">
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={inputValue}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  // Auto-grow
+                  e.target.style.height = "auto";
+                  e.target.style.height =
+                    Math.min(e.target.scrollHeight, 160) + "px";
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendStable();
+                  }
+                }}
+                placeholder="Ask a question about your sources…"
+                disabled={isStreaming}
+                className="w-full bg-ink-soft rounded-2xl px-4 py-3 pr-14 text-sm outline-none resize-none placeholder-paper-dark disabled:opacity-60 leading-relaxed"
+                style={{ minHeight: "48px", maxHeight: "160px" }}
+              />
+              <button
+                onClick={handleSendStable}
+                disabled={!inputValue.trim() || isStreaming}
+                className="absolute right-3 bottom-3 w-8 h-8 bg-azure hover:bg-azure-light disabled:opacity-40 disabled:cursor-not-allowed rounded-xl flex items-center justify-center transition-colors"
+              >
+                {isStreaming ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            <p className="text-center text-xs text-ink-muted mt-2">
+              Press Enter to send · Shift+Enter for new line
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Sidebar */}
+      {rightSidebarOpen && (
+        <div className="w-80 border-l border-ink-border flex flex-col overflow-hidden bg-ink">
+          {rightSidebarView === "main" ? (
+            <>
+              <div className="p-4 border-b border-ink-border flex items-center justify-between">
+                <h2 className="text-lg font-medium">Studio</h2>
+                <button className="p-2 hover:bg-ink-soft rounded-lg border border-ink-border">
+                  <Square className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+                {/* Audio Overview Card */}
+                <div className="bg-gradient-to-br from-azure-dark via-gold-dark to-gold-dark rounded-xl p-4 cursor-pointer hover:opacity-90 transition-opacity">
+                  <h3 className="text-sm font-medium">
+                    Create an Audio Overview in: हिन्दी, বাংলা, ગુજરાતી, ಕನ್ನಡ,
+                    മലയാളം, मराठी, ਪੰਜਾਬੀ, தமிழ், తెలుగు
+                  </h3>
+                </div>
+
+                {/* Two Column Grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Audio */}
+                  <div
+                    className="bg-gradient-to-br from-ink-soft to-ink rounded-xl p-4 cursor-pointer hover:opacity-90 transition-opacity flex flex-col justify-between min-h-[100px]"
+                    onClick={() => setShowAudioModal(true)}
+                  >
+                    <AudioWaveform className="w-6 h-6 text-azure-light" />
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Audio...</span>
+                      <ChevronRight className="w-4 h-4 text-paper-dark" />
+                    </div>
+                  </div>
+
+
+
+                  {/* Flashcards */}
+                  <div
+                    onClick={() => {
+                      handleGenerateFlashcards("", "10", "Medium");
+                    }}
+                    className="bg-gradient-to-br from-gold-dark to-gold-dark rounded-xl p-4 cursor-pointer hover:opacity-90 transition-opacity flex flex-col justify-between min-h-[100px] group"
+                  >
+                    <CreditCard className="w-6 h-6 text-gold" />
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-sm font-medium">Flashcards</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowFlashcardsModal(true);
+                        }}
+                        className="p-1 -mr-1 hover:bg-gold-dark/50 rounded-lg transition-colors"
+                      >
+                        <ChevronRight className="w-4 h-4 text-paper-dark group-hover:text-white transition-colors" />
+                      </button>
+                    </div>
+                  </div>
+
+
+                  {/* Mind Map */}
+                  <div 
+                    className="bg-gradient-to-br from-azure-dark to-azure-dark rounded-xl p-4 cursor-pointer hover:opacity-90 transition-opacity flex flex-col justify-between min-h-[100px] group"
+                    onClick={() => setShowMindmapModal(true)}
+                  >
+                    <BrainCircuit className="w-6 h-6 text-azure-light" />
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Mind Map</span>
+                      <button className="p-1 -mr-1 hover:bg-azure-dark/50 rounded-lg transition-colors">
+                        <ChevronRight className="w-4 h-4 text-paper-dark group-hover:text-white transition-colors" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+
+                {/* Generated Artifacts List */}
+                {(savedDecks.length > 0 ||
+                  podcasts.length > 0 ||
+                  mindmaps.length > 0 ||
+                  isGeneratingAudio ||
+                  isGeneratingMindmap) && (
+                  <div className="mt-6 space-y-1">
+                    {/* Generating Mindmap State */}
+                    {isGeneratingMindmap && (
+                      <div className="flex items-center gap-4 p-3 opacity-80">
+                        <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                          <RefreshCw className="w-5 h-5 text-paper animate-spin" />
+                        </div>
+                        <div>
+                          <p className="text-[15px] font-medium text-paper">
+                            Generating Mind Map...
+                          </p>
+                          <p className="text-[13px] text-paper-dark mt-0.5">
+                            based on your sources
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Generating Audio State */}
+                    {isGeneratingAudio && (
+                      <div className="flex items-center gap-4 p-3 opacity-80">
+                        <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                          <RefreshCw className="w-5 h-5 text-paper animate-spin" />
+                        </div>
+                        <div>
+                          <p className="text-[15px] font-medium text-paper">
+                            Generating Podcast...
+                          </p>
+                          <p className="text-[13px] text-paper-dark mt-0.5">
+                            based on your sources
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Saved Podcasts */}
+                    {podcasts.map((podcast) => (
+                      <div
+                        key={podcast.id}
+                        className="flex flex-col p-3 hover:bg-ink-soft/50 rounded-2xl transition-colors group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                              <AudioWaveform className="w-6 h-6 text-azure-light" />
+                            </div>
+                            <div>
+                              <p className="text-[15px] font-medium text-paper">
+                                {podcast.format}
+                              </p>
+                              <p className="text-[13px] text-paper-dark mt-0.5">
+                                {podcast.language} · Just now
+                              </p>
+                            </div>
+                          </div>
+                          <div className="relative">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenArtifactDropdown(openArtifactDropdown === podcast.id ? null : podcast.id);
+                              }}
+                              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-ink-border/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <MoreVertical className="w-5 h-5 text-paper-dark" />
+                            </button>
+                            {openArtifactDropdown === podcast.id && (
+                              <div className="absolute right-0 top-full mt-1 w-32 bg-ink-soft rounded-lg shadow-xl border border-ink-border overflow-hidden z-50">
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (confirm("Delete podcast?")) {
+                                      await deletePodcast(id, podcast.id);
+                                      loadPodcasts();
+                                      setOpenArtifactDropdown(null);
+                                    }
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm text-gold-dark hover:bg-ink-border/50 flex items-center gap-2"
+                                >
+                                  <Trash2 className="w-4 h-4" /> Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-3 pl-12 pr-4">
+                          <audio
+                            controls
+                            src={podcast.audio_url}
+                            className="w-full h-10"
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Saved Flashcards */}
+                    {savedDecks.map((deck) => {
+                      if (deck.isGenerating) {
+                        return (
+                          <div
+                            key={deck.id}
+                            className="flex items-center gap-4 p-3 opacity-80"
+                          >
+                            <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                              <RefreshCw className="w-5 h-5 text-paper animate-spin" />
+                            </div>
+                            <div>
+                              <p className="text-[15px] font-medium text-paper">
+                                Generating Flashcards...
+                              </p>
+                              <p className="text-[13px] text-paper-dark mt-0.5">
+                                based on your sources
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={deck.id}
+                          onClick={() => {
+                            setActiveDeckId(deck.id);
+                            setRightSidebarView("flashcards");
+                            setCurrentCardIndex(0);
+                            setIsFlipped(false);
+                          }}
+                          className="flex items-center justify-between p-3 cursor-pointer hover:bg-ink-soft/50 rounded-2xl transition-colors group"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                              <CreditCard className="w-6 h-6 text-azure-light" />
+                            </div>
+                            <div>
+                              <p className="text-[15px] font-medium text-paper">
+                                {deck.topic}
+                              </p>
+                              <p className="text-[13px] text-paper-dark mt-0.5">
+                                {sources.length} source
+                                {sources.length !== 1 ? "s" : ""} · Just now
+                              </p>
+                            </div>
+                          </div>
+                          <div className="relative">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenArtifactDropdown(openArtifactDropdown === deck.id ? null : deck.id);
+                              }}
+                              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-ink-border/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <MoreVertical className="w-5 h-5 text-paper-dark" />
+                            </button>
+                            {openArtifactDropdown === deck.id && (
+                              <div className="absolute right-0 top-full mt-1 w-32 bg-ink-soft rounded-lg shadow-xl border border-ink-border overflow-hidden z-50">
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (confirm("Delete flashcard deck?")) {
+                                      await deleteFlashcardDeck(id, deck.id);
+                                      setSavedDecks((prev) => prev.filter((d) => d.id !== deck.id));
+                                      if (activeDeckId === deck.id) {
+                                        setActiveDeckId(null);
+                                        setRightSidebarView("main");
+                                      }
+                                      setOpenArtifactDropdown(null);
+                                    }
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm text-gold-dark hover:bg-ink-border/50 flex items-center gap-2"
+                                >
+                                  <Trash2 className="w-4 h-4" /> Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Saved Mind Maps */}
+                    {mindmaps.map((mindmap) => (
+                      <div
+                        key={mindmap.id}
+                        className="flex flex-col p-3 hover:bg-ink-soft/50 rounded-2xl transition-colors group cursor-pointer"
+                        onClick={() => setActiveMindmap(mindmap)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                              <BrainCircuit className="w-6 h-6 text-azure-light" />
+                            </div>
+                            <div>
+                              <p className="text-[15px] font-medium text-paper">
+                                {mindmap.topic}
+                              </p>
+                              <p className="text-[13px] text-paper-dark mt-0.5">
+                                Interactive Map · Just now
+                              </p>
+                            </div>
+                          </div>
+                          <div className="relative">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenArtifactDropdown(openArtifactDropdown === mindmap.id ? null : mindmap.id);
+                              }}
+                              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-ink-border/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <MoreVertical className="w-5 h-5 text-paper-dark" />
+                            </button>
+                            {openArtifactDropdown === mindmap.id && (
+                              <div className="absolute right-0 top-full mt-1 w-32 bg-ink-soft rounded-lg shadow-xl border border-ink-border overflow-hidden z-50">
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (confirm("Delete mind map?")) {
+                                      await handleDeleteMindmap(mindmap.id);
+                                      setOpenArtifactDropdown(null);
+                                    }
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm text-gold-dark hover:bg-ink-border/50 flex items-center gap-2"
+                                >
+                                  <Trash2 className="w-4 h-4" /> Delete
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+
+            </>
+          ) : (
+            <div className="flex flex-col h-full bg-[#1e1e1e]">
+              {/* Top breadcrumb */}
+              <div className="p-4 flex items-center justify-between text-sm text-paper">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setRightSidebarView("main")}
+                    className="hover:text-white transition-colors"
+                  >
+                    Studio
+                  </button>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                  <span className="text-white">App</span>
+                </div>
+                <button className="p-1 hover:bg-ink-soft rounded transition-colors">
+                  <PanelRightClose className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Title Area */}
+              <div className="px-4 pb-4 border-b border-ink-border flex items-start justify-between">
+                <div>
+                  <h2 className="text-xl text-white mb-1">
+                    {activeDeck?.topic || "Flashcards"}
+                  </h2>
+                  <p className="text-xs text-paper-dark font-medium">
+                    {activeDeck?.isGenerating
+                      ? "Generating..."
+                      : `Based on ${sources.length} source${sources.length !== 1 ? "s" : ""} · ${activeDeck?.difficulty}`}
+                  </p>
+                </div>
+                <button className="p-1.5 hover:bg-ink-soft rounded transition-colors mt-1">
+                  <Square className="w-4 h-4 text-paper-dark" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center">
+                <p className="text-xs text-paper-dark mb-4">
+                  Press "Space" to flip, "← / →" to navigate
+                </p>
+
+                {/* Flashcard Component */}
+                <div
+                  className={`w-full bg-[#2d2d2d] rounded-3xl p-6 flex flex-col min-h-[280px] shadow-lg relative ${!isDeckFinished ? "cursor-pointer" : ""}`}
+                  onClick={() => {
+                    if (!isDeckFinished) setIsFlipped(!isFlipped);
+                  }}
+                >
+                  {!isDeckFinished ? (
+                    <>
+                      <div className="flex items-center justify-between text-paper-dark mb-6">
+                        <span className="text-sm">
+                          {activeDeck && activeDeck.cards.length > 0
+                            ? `${currentCardIndex + 1} / ${activeDeck.cards.length}`
+                            : "0 / 0"}
+                        </span>
+                        <button
+                          className="p-1 hover:bg-ink-border rounded-full transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="flex-1 flex items-center justify-center text-center">
+                        {!activeDeck || activeDeck.isGenerating ? (
+                          <div className="flex flex-col items-center gap-3">
+                            <Loader2 className="w-8 h-8 text-azure animate-spin" />
+                            <p className="text-paper-dark">
+                              Generating flashcards...
+                            </p>
+                          </div>
+                        ) : activeDeck.cards.length > 0 ? (
+                          <p className="text-lg text-white leading-snug">
+                            {isFlipped
+                              ? activeDeck.cards[currentCardIndex].answer
+                              : activeDeck.cards[currentCardIndex].question}
+                          </p>
+                        ) : (
+                          <p className="text-paper-dark">
+                            No flashcards available. Click Generate to create
+                            some.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="text-center mt-6 h-6">
+                        {activeDeck &&
+                          activeDeck.cards.length > 0 &&
+                          !activeDeck.isGenerating && (
+                            <span className="text-sm text-paper-dark">
+                              {isFlipped ? "See question" : "See answer"}
+                            </span>
+                          )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center space-y-8 cursor-default">
+                      <h3 className="text-2xl font-semibold text-white">
+                        Deck Complete!
+                      </h3>
+                      <div className="flex gap-12">
+                        <div className="text-center">
+                          <p className="text-4xl text-gold font-bold mb-2">
+                            {correctScore}
+                          </p>
+                          <p className="text-sm text-paper-dark font-medium">
+                            Correct
+                          </p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-4xl text-gold-dark font-bold mb-2">
+                            {wrongScore}
+                          </p>
+                          <p className="text-sm text-paper-dark font-medium">
+                            Wrong
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsDeckFinished(false);
+                          setCurrentCardIndex(0);
+                          setCorrectScore(0);
+                          setWrongScore(0);
+                          setIsFlipped(false);
+                        }}
+                        className="px-6 py-2.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white rounded-full transition-colors text-sm font-medium mt-2"
+                      >
+                        Restart Deck
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Navigation Controls */}
+                {!isDeckFinished && (
+                  <div className="flex items-center justify-between w-full mt-6 px-2">
+                    <button
+                      onClick={() => {
+                        setIsFlipped(false);
+                        setCurrentCardIndex((prev) => Math.max(0, prev - 1));
+                      }}
+                      disabled={
+                        currentCardIndex === 0 ||
+                        !activeDeck ||
+                        activeDeck.isGenerating ||
+                        activeDeck.cards.length === 0
+                      }
+                      className="w-12 h-12 rounded-full border border-ink-border flex items-center justify-center hover:bg-ink-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="text-paper-dark text-lg">←</span>
+                    </button>
+
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={() => {
+                          setWrongScore((s) => s + 1);
+                          if (
+                            activeDeck &&
+                            currentCardIndex < activeDeck.cards.length - 1
+                          ) {
+                            setCurrentCardIndex((c) => c + 1);
+                            setIsFlipped(false);
+                          } else {
+                            setIsDeckFinished(true);
+                          }
+                        }}
+                        disabled={
+                          !activeDeck ||
+                          activeDeck.isGenerating ||
+                          activeDeck.cards.length === 0
+                        }
+                        className="h-10 px-5 rounded-full border border-ink-border flex items-center gap-2 hover:bg-ink-soft transition-colors disabled:opacity-50"
+                      >
+                        <X className="w-4 h-4 text-gold-dark" />
+                        <span className="text-paper-dark text-sm">
+                          {wrongScore}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setCorrectScore((s) => s + 1);
+                          if (
+                            activeDeck &&
+                            currentCardIndex < activeDeck.cards.length - 1
+                          ) {
+                            setCurrentCardIndex((c) => c + 1);
+                            setIsFlipped(false);
+                          } else {
+                            setIsDeckFinished(true);
+                          }
+                        }}
+                        disabled={
+                          !activeDeck ||
+                          activeDeck.isGenerating ||
+                          activeDeck.cards.length === 0
+                        }
+                        className="h-10 px-5 rounded-full border border-ink-border flex items-center gap-2 hover:bg-ink-soft transition-colors disabled:opacity-50"
+                      >
+                        <span className="text-paper-dark text-sm">
+                          {correctScore}
+                        </span>
+                        <Check className="w-4 h-4 text-gold" />
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setIsFlipped(false);
+                        setCurrentCardIndex((prev) =>
+                          Math.min(
+                            (activeDeck?.cards.length || 1) - 1,
+                            prev + 1,
+                          ),
+                        );
+                      }}
+                      disabled={
+                        !activeDeck ||
+                        currentCardIndex === activeDeck.cards.length - 1 ||
+                        activeDeck.isGenerating ||
+                        activeDeck.cards.length === 0
+                      }
+                      className="w-12 h-12 rounded-full border border-ink-border flex items-center justify-center hover:bg-ink-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="text-azure text-lg">→</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer feedback */}
+              <div className="p-4 border-t border-ink-border flex gap-3">
+                <button className="flex-1 h-10 rounded-full border border-ink-border flex items-center justify-center gap-2 text-sm text-white hover:bg-ink-soft transition-colors">
+                  <span className="text-lg leading-none mb-1">👍</span>
+                  Good content
+                </button>
+                <button className="flex-1 h-10 rounded-full border border-ink-border flex items-center justify-center gap-2 text-sm text-white hover:bg-ink-soft transition-colors">
+                  <span className="text-lg leading-none mb-1 scale-x-[-1]">
+                    👎
+                  </span>
+                  Bad content
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Audio Customize Modal */}
+      {showAudioModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1e1f23] rounded-2xl w-full max-w-4xl relative shadow-2xl border border-ink-border flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="p-5 border-b border-ink-border flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AudioWaveform className="w-5 h-5 text-paper" />
+                <h2 className="text-lg font-medium text-white">
+                  Customize Audio Overview
+                </h2>
+              </div>
+              <button
+                className="p-2 hover:bg-ink-soft rounded-lg transition-colors"
+                onClick={() => setShowAudioModal(false)}
+              >
+                <X className="w-5 h-5 text-paper-dark" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-8 overflow-y-auto max-h-[80vh]">
+              {/* Format Section */}
+              <div>
+                <h3 className="text-sm font-medium text-paper mb-4">
+                  Format
+                </h3>
+                <div className="grid grid-cols-4 gap-4">
+                  {[
+                    {
+                      title: "Deep Dive",
+                      desc: "A lively conversation between two hosts, unpacking and connecting topics in your sources",
+                    },
+                    {
+                      title: "Brief",
+                      desc: "A bite-sized overview to help you grasp the core ideas from your sources quickly",
+                    },
+                    {
+                      title: "Critique",
+                      desc: "An expert review of your sources, offering constructive feedback to help you improve your material",
+                    },
+                    {
+                      title: "Debate",
+                      desc: "A thoughtful debate between two hosts, illuminating different perspectives on your sources",
+                    },
+                  ].map((fmt) => (
+                    <div
+                      key={fmt.title}
+                      onClick={() => setAudioFormat(fmt.title)}
+                      className={`p-4 rounded-xl cursor-pointer border transition-colors ${
+                        audioFormat === fmt.title
+                          ? "bg-[#262626] border-ink-muted"
+                          : "bg-[#171717] border-transparent hover:border-ink-muted"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <span className="font-medium text-white">
+                          {fmt.title}
+                        </span>
+                        {audioFormat === fmt.title && (
+                          <Check className="w-4 h-4 text-white" />
+                        )}
+                      </div>
+                      <p className="text-sm text-paper leading-relaxed">
+                        {fmt.desc}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Language & Length Settings */}
+              <div className="flex gap-12">
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-paper mb-3">
+                    Choose language
+                  </h3>
+                  <div className="relative">
+                    <select
+                      value={audioLanguage}
+                      onChange={(e) => setAudioLanguage(e.target.value)}
+                      className="w-full bg-[#1e1f23] border border-ink-border text-white rounded-lg px-4 py-2.5 appearance-none focus:outline-none focus:border-azure"
+                    >
+                      <option value="English">English</option>
+                      <option value="Hindi">Hindi (हिन्दी)</option>
+                      <option value="Kannada">Kannada (ಕನ್ನಡ)</option>
+                      <option value="Telugu">Telugu (తెలుగు)</option>
+                      <option value="Tamil">Tamil (தமிழ்)</option>
+                      <option value="Odia">Odia (ଓଡ଼ିଆ)</option>
+                    </select>
+                    <ChevronDown className="absolute right-4 top-3 w-4 h-4 text-paper-dark pointer-events-none" />
+                  </div>
+                </div>
+
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-paper mb-3">
+                    Length
+                  </h3>
+                  <div className="flex items-center rounded-full border border-ink-border overflow-hidden w-fit">
+                    {["Short", "Default", "Long"].map((len) => (
+                      <button
+                        key={len}
+                        onClick={() => setAudioLength(len)}
+                        className={`px-5 py-2 text-sm font-medium flex items-center gap-2 transition-colors ${
+                          audioLength === len
+                            ? "bg-[#262626] text-white"
+                            : "text-paper-dark hover:text-paper"
+                        }`}
+                      >
+                        {audioLength === len && <Check className="w-4 h-4" />}
+                        {len}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Instructions */}
+              <div>
+                <h3 className="text-sm font-medium text-paper mb-3">
+                  What should the AI hosts focus on in this episode?
+                </h3>
+                <div className="relative">
+                  <textarea
+                    value={audioFocus}
+                    onChange={(e) => setAudioFocus(e.target.value)}
+                    placeholder="Focus on when to choose one over the other for modern enterprise development..."
+                    className="w-full h-28 bg-[#1e1f23] border border-azure/50 rounded-lg p-4 text-white placeholder-paper-dark resize-none focus:outline-none focus:border-azure transition-colors"
+                  />
+                  {!audioFocus && (
+                    <div className="absolute right-4 top-4 px-2 py-0.5 bg-ink-border rounded text-xs text-paper pointer-events-none">
+                      Tab →
+                    </div>
+                  )}
+                </div>
+
+                {/* Suggestions */}
+                <div className="flex flex-wrap gap-3 mt-4">
+                  {[
+                    "+ Beginner Overview",
+                    "+ Technical Comparison",
+                    "+ Practical Architect",
+                  ].map((pill) => (
+                    <button
+                      key={pill}
+                      onClick={() =>
+                        setAudioFocus(
+                          (prev) =>
+                            prev + (prev ? " " : "") + pill.replace("+ ", ""),
+                        )
+                      }
+                      className="px-4 py-1.5 rounded-full border border-ink-border text-sm text-paper hover:bg-ink-soft transition-colors"
+                    >
+                      {pill}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 border-t border-ink-border flex justify-end">
+              <button
+                onClick={handleGenerateAudio}
+                disabled={isGeneratingAudio}
+                className="px-6 py-2.5 bg-azure hover:bg-azure-dark disabled:opacity-50 text-white font-medium rounded-full transition-colors flex items-center gap-2"
+              >
+                {isGeneratingAudio ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : null}
+                {isGeneratingAudio ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mind Map Customize Modal */}
+      {showMindmapModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1e1f23] rounded-2xl w-full max-w-md relative shadow-2xl border border-ink-border flex flex-col overflow-hidden">
+            <div className="p-5 border-b border-ink-border flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <BrainCircuit className="w-5 h-5 text-azure-light" />
+                <h2 className="text-lg font-medium text-white">
+                  Generate Mind Map
+                </h2>
+              </div>
+              <button
+                className="p-2 hover:bg-ink-soft rounded-lg transition-colors"
+                onClick={() => setShowMindmapModal(false)}
+              >
+                <X className="w-5 h-5 text-paper-dark" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              <div>
+                <h3 className="text-sm font-medium text-paper mb-3">Topic / Focus</h3>
+                <input
+                  type="text"
+                  value={mindmapTopic}
+                  onChange={(e) => setMindmapTopic(e.target.value)}
+                  placeholder="e.g. Core Concepts, Architecture"
+                  className="w-full bg-[#1e1f23] border border-ink-border text-white rounded-lg px-4 py-2.5 focus:outline-none focus:border-azure"
+                />
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-paper mb-3">Language</h3>
+                <div className="relative">
+                  <select
+                    value={mindmapLanguage}
+                    onChange={(e) => setMindmapLanguage(e.target.value)}
+                    className="w-full bg-[#1e1f23] border border-ink-border text-white rounded-lg px-4 py-2.5 appearance-none focus:outline-none focus:border-azure"
+                  >
+                    <option value="English">English</option>
+                    <option value="Hindi">Hindi (हिन्दी)</option>
+                    <option value="Kannada">Kannada (ಕನ್ನಡ)</option>
+                    <option value="Telugu">Telugu (తెలుగు)</option>
+                    <option value="Tamil">Tamil (தமிழ்)</option>
+                    <option value="Odia">Odia (ଓଡ଼ିଆ)</option>
+                  </select>
+                  <ChevronDown className="absolute right-4 top-3 w-4 h-4 text-paper-dark pointer-events-none" />
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t border-ink-border flex justify-end">
+              <button
+                onClick={handleGenerateMindmap}
+                disabled={isGeneratingMindmap}
+                className="px-6 py-2.5 bg-azure hover:bg-azure-dark disabled:opacity-50 text-white font-medium rounded-full transition-colors flex items-center gap-2"
+              >
+                {isGeneratingMindmap ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {isGeneratingMindmap ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mind Map Viewer Fullscreen Modal */}
+      {activeMindmap && (
+        <div className="fixed inset-0 bg-[#111827] z-50 flex flex-col">
+          <div className="p-4 border-b border-ink-border flex items-center justify-between shrink-0">
+            <div>
+              <h2 className="text-lg font-medium text-white">
+                {activeMindmap.topic || "Mind Map"}
+              </h2>
+              <p className="text-xs text-paper-dark mt-1">Based on selected sources</p>
+            </div>
+            <button
+              onClick={() => setActiveMindmap(null)}
+              className="p-2 bg-ink-soft hover:bg-ink-border rounded-lg text-paper transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 relative">
+            <MindMapViewer data={activeMindmap.data} />
+          </div>
+        </div>
+      )}
+
+      {/* Add Sources Modal */}
+      {showAddSourcesModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-ink rounded-2xl w-full max-w-4xl relative">
+            {/* Close Button */}
+            <button
+              className="absolute top-6 right-6 p-2 hover:bg-ink-soft rounded-lg transition-colors"
+              onClick={() => setShowAddSourcesModal(false)}
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            <div className="p-8">
+              {/* Title */}
+              <h2 className="text-3xl font-normal mb-8 text-center">
+                Create Audio and Video Overviews from
+              </h2>
+
+              {/* Search Bar */}
+              <div className="mb-8 border-2 border-azure rounded-2xl p-4 bg-ink-soft/50">
+                <div className="text-sm text-paper-dark mb-3">
+                  Search the web for new sources
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleWebSearch()}
+                      placeholder="What do you want to learn about?"
+                      className="w-full bg-transparent outline-none text-paper placeholder-paper-dark"
+                    />
+                  </div>
+                  <button
+                    onClick={handleWebSearch}
+                    disabled={!searchQuery.trim() || uploading}
+                    className="p-2 hover:bg-ink-border rounded-lg disabled:opacity-50"
+                  >
+                    {uploading ? (
+                      <Loader2 className="w-5 h-5 text-azure animate-spin" />
+                    ) : (
+                      <Search className="w-5 h-5 text-azure" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Drop Zone */}
+              <div className="border-2 border-dashed border-ink-border rounded-2xl p-12 mb-6">
+                <div className="text-center">
+                  <h3 className="text-2xl mb-3">or drop your files</h3>
+                  <p className="text-paper-dark">
+                    pdf, images, docs, audio,{" "}
+                    <span className="underline">and more</span>
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-center gap-4 mt-12">
+                  <input
+                    type="file"
+                    accept="application/pdf,.doc,.docx,.pptx"
+                    className="hidden"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                  />
+                  <button
+                    className="flex items-center gap-2 px-6 py-3 bg-ink-soft hover:bg-ink-border rounded-full transition-colors disabled:opacity-50"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    {uploading ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Upload className="w-5 h-5" />
+                    )}
+                    <span>{uploading ? "Uploading..." : "Upload files"}</span>
+                  </button>
+                  <button
+                    onClick={handleWebsiteUpload}
+                    disabled={uploading}
+                    className="flex items-center gap-2 px-6 py-3 bg-ink-soft hover:bg-ink-border rounded-full transition-colors disabled:opacity-50"
+                  >
+                    <LinkIcon className="w-5 h-5" />
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-gold rounded-full"></span>
+                      Websites
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Flashcards Modal */}
+      {showFlashcardsModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl w-full max-w-3xl relative overflow-hidden border border-ink-border shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-ink-border">
+              <div className="flex items-center gap-3">
+                <div className="relative flex items-center justify-center">
+                  <CreditCard className="w-6 h-6 text-paper" />
+                  <div className="absolute -top-1 -right-1">
+                    <span className="text-[10px]">★</span>
+                  </div>
+                </div>
+                <h2 className="text-2xl font-medium text-paper">
+                  Customize Flashcards
+                </h2>
+              </div>
+              <button
+                className="p-2 hover:bg-ink-soft rounded-lg transition-colors text-paper-dark hover:text-white"
+                onClick={() => setShowFlashcardsModal(false)}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 pb-24">
+              <div className="flex flex-col md:flex-row gap-8 mb-8">
+                {/* Number of Cards */}
+                <div className="flex-1">
+                  <p className="text-sm text-paper mb-3">Number of Cards</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setFlashcardCount("5")}
+                      className={`px-5 py-2.5 rounded-full border text-sm transition-colors ${flashcardCount === "5" ? "border-[#2d3748] bg-[#2d3748] text-paper" : "border-ink-border bg-transparent text-paper hover:bg-ink-soft"}`}
+                    >
+                      {flashcardCount === "5" && (
+                        <Check className="w-4 h-4 inline mr-2" />
+                      )}
+                      Fewer
+                    </button>
+                    <button
+                      onClick={() => setFlashcardCount("10")}
+                      className={`px-5 py-2.5 rounded-full border text-sm transition-colors ${flashcardCount === "10" ? "border-[#2d3748] bg-[#2d3748] text-paper" : "border-ink-border bg-transparent text-paper hover:bg-ink-soft"}`}
+                    >
+                      {flashcardCount === "10" && (
+                        <Check className="w-4 h-4 inline mr-2" />
+                      )}
+                      Standard (Default)
+                    </button>
+                    <button
+                      onClick={() => setFlashcardCount("20")}
+                      className={`px-5 py-2.5 rounded-full border text-sm transition-colors ${flashcardCount === "20" ? "border-[#2d3748] bg-[#2d3748] text-paper" : "border-ink-border bg-transparent text-paper hover:bg-ink-soft"}`}
+                    >
+                      {flashcardCount === "20" && (
+                        <Check className="w-4 h-4 inline mr-2" />
+                      )}
+                      More
+                    </button>
+                  </div>
+                </div>
+
+                {/* Level of Difficulty */}
+                <div className="flex-1">
+                  <p className="text-sm text-paper mb-3">
+                    Level of Difficulty
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setFlashcardDifficulty("Easy")}
+                      className={`px-5 py-2.5 rounded-full border text-sm transition-colors ${flashcardDifficulty === "Easy" ? "border-[#2d3748] bg-[#2d3748] text-paper" : "border-ink-border bg-transparent text-paper hover:bg-ink-soft"}`}
+                    >
+                      {flashcardDifficulty === "Easy" && (
+                        <Check className="w-4 h-4 inline mr-2" />
+                      )}
+                      Easy
+                    </button>
+                    <button
+                      onClick={() => setFlashcardDifficulty("Medium")}
+                      className={`px-5 py-2.5 rounded-full border text-sm transition-colors ${flashcardDifficulty === "Medium" ? "border-[#2d3748] bg-[#2d3748] text-paper" : "border-ink-border bg-transparent text-paper hover:bg-ink-soft"}`}
+                    >
+                      {flashcardDifficulty === "Medium" && (
+                        <Check className="w-4 h-4 inline mr-2" />
+                      )}
+                      Medium (Default)
+                    </button>
+                    <button
+                      onClick={() => setFlashcardDifficulty("Hard")}
+                      className={`px-5 py-2.5 rounded-full border text-sm transition-colors ${flashcardDifficulty === "Hard" ? "border-[#2d3748] bg-[#2d3748] text-paper" : "border-ink-border bg-transparent text-paper hover:bg-ink-soft"}`}
+                    >
+                      {flashcardDifficulty === "Hard" && (
+                        <Check className="w-4 h-4 inline mr-2" />
+                      )}
+                      Hard
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Topic */}
+              <div>
+                <p className="text-sm text-paper mb-3">
+                  What should the topic be?
+                </p>
+                <div className="w-full h-40 border border-[#3b82f6] rounded-lg bg-transparent p-4 text-sm text-paper-dark focus-within:ring-1 focus-within:ring-[#3b82f6] relative cursor-text">
+                  <div className="absolute inset-0 p-4 pointer-events-none">
+                    <div className="flex">
+                      <div className="w-px h-5 bg-ink-muted animate-pulse mr-1"></div>
+                      <p>Things to try</p>
+                    </div>
+                    <ul className="list-disc ml-6 mt-2 space-y-1.5 text-paper-dark">
+                      <li>
+                        The flashcards must be restricted to a specific source
+                        (e.g. "the article about Italy")
+                      </li>
+                      <li>
+                        The flashcards must focus on a specific topic like
+                        "Newton's second law"
+                      </li>
+                      <li>
+                        The card fronts must be short (1-5 words) for
+                        memorization
+                      </li>
+                    </ul>
+                  </div>
+                  <textarea
+                    value={flashcardTopic}
+                    onChange={(e) => setFlashcardTopic(e.target.value)}
+                    className="w-full h-full bg-transparent resize-none outline-none text-paper z-10 relative focus:bg-[#1a1a1a]"
+                    placeholder="Things to try..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer with Generate button */}
+            <div className="absolute bottom-0 left-0 right-0 p-6 flex justify-end bg-gradient-to-t from-[#1a1a1a] to-transparent">
+              <button
+                onClick={() => handleGenerateFlashcards()}
+                className="bg-[#4f46e5] hover:bg-[#4338ca] text-white px-6 py-2.5 rounded-full text-sm font-medium transition-colors"
+              >
+                Generate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Website URLs Modal */}
+      {showWebsiteModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1a1a] rounded-2xl w-full max-w-2xl relative overflow-hidden border border-ink-border shadow-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-medium text-paper flex items-center gap-2">
+                <LinkIcon className="w-5 h-5" />
+                Website URLs
+              </h2>
+              <button
+                className="p-2 hover:bg-ink-soft rounded-lg transition-colors text-paper-dark hover:text-white"
+                onClick={() => setShowWebsiteModal(false)}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-paper-dark mb-4">
+              Paste in Website URLs below to upload as a source.
+            </p>
+
+            <div className="border border-azure/50 rounded-xl overflow-hidden mb-4">
+              <textarea
+                value={websiteUrls}
+                onChange={(e) => setWebsiteUrls(e.target.value)}
+                placeholder="Paste any links"
+                className="w-full h-40 bg-transparent text-paper p-4 outline-none resize-none placeholder-paper-dark"
+              />
+            </div>
+
+            <div className="text-xs text-paper-dark mb-6 space-y-1">
+              <p>• To add multiple URLs, separate with a space or new line.</p>
+              <p>
+                • Only the visible text on the website will be imported at this
+                time.
+              </p>
+              <p>• Paid articles are not supported.</p>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleWebsiteSubmit}
+                disabled={!websiteUrls.trim() || uploading}
+                className="px-6 py-2 bg-ink-border hover:bg-ink-muted disabled:opacity-50 text-white rounded-full transition-colors flex items-center gap-2"
+              >
+                {uploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : null}
+                Insert
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
