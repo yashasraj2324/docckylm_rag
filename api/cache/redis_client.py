@@ -3,7 +3,8 @@ Redis client for response caching and rate limiting.
 
 Cache keys:
   rag:{notebook_id}:{hash(query)}  cached RAG answer + citations (TTL 1h)
-  emb:{hash(text)}                  cached embedding vector (TTL 24h)
+  vision:{model}:{hash(image)}      cached visual description (TTL 24h)
+  ocr:{hash(image)}                 cached RapidOCR text (TTL 24h)
   rl:{ip}:{endpoint}                rate limit counter (TTL = window)
 """
 
@@ -56,6 +57,42 @@ def set_cached_response(
         _cache_key(notebook_id, query),
         ttl,
         json.dumps({"answer": answer, "citations": citations}),
+    )
+
+
+def _vision_cache_key(model: str, image_data: bytes) -> str:
+    image_hash = hashlib.sha256(image_data).hexdigest()
+    model_hash = hashlib.sha256(model.encode()).hexdigest()[:16]
+    return f"vision:{model_hash}:{image_hash}"
+
+
+def get_cached_vision_description(model: str, image_data: bytes):
+    """Return a cached NVIDIA vision description or None on miss."""
+    value = get_redis().get(_vision_cache_key(model, image_data))
+    return value or None
+
+
+def set_cached_vision_description(
+    model: str, image_data: bytes, description: str, ttl: int = 86400
+):
+    """Cache a visual description independently of the source document."""
+    get_redis().setex(
+        _vision_cache_key(model, image_data),
+        ttl,
+        description,
+    )
+
+
+def get_cached_ocr_text(image_data: bytes):
+    value = get_redis().get(f"ocr:{hashlib.sha256(image_data).hexdigest()}")
+    return value or None
+
+
+def set_cached_ocr_text(image_data: bytes, text: str, ttl: int = 86400):
+    get_redis().setex(
+        f"ocr:{hashlib.sha256(image_data).hexdigest()}",
+        ttl,
+        text,
     )
 
 

@@ -28,13 +28,16 @@ def create_source(
     file_name: str,
     gridfs_file_id: str,
     status: str = "indexing",
+    source_type: str = "pdf",
+    content_type: str = "application/pdf",
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     doc = {
         "_id": ObjectId(source_id),
         "notebook_id": ObjectId(notebook_id),
-        "source_type": "pdf",
+        "source_type": source_type,
         "file_name": file_name,
+        "content_type": content_type,
         "gridfs_file_id": ObjectId(gridfs_file_id) if gridfs_file_id and gridfs_file_id != "web" else gridfs_file_id,
         "status": status,
         "created_at": now,
@@ -68,8 +71,9 @@ def upload_pdf(
     source_id: str,
     file_name: str,
     data: bytes,
+    content_type: str = "application/pdf",
 ) -> str:
-    """Upload PDF to GridFS, return the file ID as string."""
+    """Upload a source file to GridFS, return the file ID as string."""
     file_id = upload_file(
         bucket,
         data,
@@ -78,7 +82,7 @@ def upload_pdf(
             "user_id": user_id,
             "notebook_id": notebook_id,
             "source_id": source_id,
-            "content_type": "application/pdf",
+            "content_type": content_type,
         },
     )
     return str(file_id)

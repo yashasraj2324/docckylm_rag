@@ -6,7 +6,6 @@ Upgraded from MarkdownTextSplitter (700 chars) to RecursiveCharacterTextSplitter
 metadata from PyMuPDF4LLM through the splitting process.
 """
 
-from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Recursive splitter tries to split on, in order:

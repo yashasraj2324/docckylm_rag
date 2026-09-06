@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import UUID
 
 from dotenv import load_dotenv
+from bson import ObjectId
 from pymongo import ASCENDING, DESCENDING, MongoClient
 from gridfs import GridFSBucket
 

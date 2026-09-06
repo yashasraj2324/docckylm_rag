@@ -23,7 +23,6 @@ from db.notebooks import (
     delete_notebook_rows,
     list_notebooks,
     rename_notebook,
-    touch_notebook,
 )
 from db.podcasts import (
     delete_podcast,
@@ -83,9 +82,18 @@ class Database:
         file_name: str,
         storage_path: str,
         status: str = "indexing",
+        source_type: str = "pdf",
+        content_type: str = "application/pdf",
     ) -> dict[str, Any]:
         return create_source(
-            self.db, notebook_id, source_id, file_name, storage_path, status
+            self.db,
+            notebook_id,
+            source_id,
+            file_name,
+            storage_path,
+            status,
+            source_type,
+            content_type,
         )
 
     def update_source_status(self, source_id: str, status: str) -> None:
@@ -103,6 +111,7 @@ class Database:
         source_id: str,
         file_name: str,
         data: bytes,
+        content_type: str = "application/pdf",
     ) -> str:
         return upload_pdf(
             self.pdf_bucket,
@@ -111,6 +120,7 @@ class Database:
             source_id,
             file_name,
             data,
+            content_type,
         )
 
     def delete_storage_paths(self, storage_paths: list[str]) -> None:

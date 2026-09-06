@@ -1807,7 +1807,7 @@ export default function NotebookDetail() {
                 <div className="flex items-center justify-center gap-4 mt-12">
                   <input
                     type="file"
-                    accept="application/pdf,.doc,.docx,.pptx"
+                    accept="application/pdf,.doc,.docx,.pptx,image/png,image/jpeg,image/webp"
                     className="hidden"
                     ref={fileInputRef}
                     onChange={handleFileUpload}
