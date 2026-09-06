@@ -6,6 +6,7 @@ redis
 langchain-qdrant
 qdrant-client
 langchain-nvidia-ai-endpoints
+langchain-openai
 langchain-sarvamcloud
 pypandoc
 markitdown

@@ -60,7 +60,7 @@ The project is split into two heavily decoupled layers: a React-based frontend a
 
 ### Backend (AI & Data Pipeline)
 - **Server**: **FastAPI** (Python 3.10+, async) serving a robust RESTful API with automatic OpenAPI docs.
-- **AI Models**: **NVIDIA API** powers the Large Language Models (LLMs), Text Embeddings, and semantic Document Reranking.
+- **AI Models**: **Azure OpenAI** powers chat generation and text embeddings. NVIDIA API powers visual captions and semantic document reranking.
 - **Primary Database**: **MongoDB** stores notebook metadata, chat histories, flashcard decks, and mind map structures as BSON documents.
 - **Object Storage**: **GridFS** stores uploaded PDFs and generated podcast MP3s in chunked collections.
 - **Cache & Queue**: **Redis** provides response caching for RAG queries and cache invalidation on source changes.
@@ -106,7 +106,14 @@ QDRANT_API_KEY=your_qdrant_api_key
 # --- SARVAM AI ---
 SARVAM_API_KEY=your_sarvam_api_subscription_key
 
-# --- NVIDIA API (LLM, Embeddings, Reranker) ---
+# --- AZURE OPENAI (Chat and Text Embeddings) ---
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_API_VERSION=2024-02-01
+AZURE_OPENAI_CHAT_DEPLOYMENT=your_chat_deployment
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=your_embedding_deployment
+
+# --- NVIDIA API (Vision Captions and Reranker) ---
 NVIDIA_API_KEY=your_nvidia_api_key
 ```
 
