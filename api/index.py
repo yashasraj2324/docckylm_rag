@@ -30,7 +30,11 @@ from pipeline.naming import generate_notebook_title
 from pipeline.query import prepare_answer, stream_answer
 from vectorstore import qdrant_db
 from web.loader import fetch_search_results
-from cache.redis_client import invalidate_notebook_cache
+from cache.redis_client import (
+    get_cached_response,
+    set_cached_response,
+    invalidate_notebook_cache,
+)
 
 Database().list_notebooks()
 print("Connected to MongoDB successfully")
@@ -46,13 +50,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-thread_local = threading.local()
+_db_instance = None
 
 
 def _db():
-    if not hasattr(thread_local, "db_instance"):
-        thread_local.db_instance = Database()
-    return thread_local.db_instance
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = Database()
+    return _db_instance
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -350,6 +355,21 @@ async def chat_stream(notebook_id: str, request: Request):
     def generate():
         full_answer = []
         citations = []
+
+        # Check Redis cache first — skip LLM for identical repeat questions
+        try:
+            cached = get_cached_response(notebook_id, query)
+            if cached:
+                answer = cached.get("answer", "")
+                citations = cached.get("citations", [])
+                yield f"data: {json.dumps({'type': 'chunk', 'content': answer})}\n\n"
+                if citations:
+                    yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+        except Exception:
+            pass  # Cache miss or Redis down — fall through to LLM
+
         try:
             embedding_model = get_embedding_model()
             chat_model = get_chat_model()
@@ -381,6 +401,11 @@ async def chat_stream(notebook_id: str, request: Request):
                     db.save_message(notebook_id, "assistant", answer_text, citations)
                 except Exception as e:
                     print(f"Warning: Failed to save assistant message: {e}")
+                # Cache the response for repeat queries (1h TTL)
+                try:
+                    set_cached_response(notebook_id, query, answer_text, citations)
+                except Exception:
+                    pass
             yield "data: [DONE]\n\n"
 
     return StreamingResponse(
