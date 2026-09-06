@@ -25,4 +25,3 @@ def rerank_documents(query, docs):
             logfire.warn(f"Reranking fallback triggered: {err}")
             return docs
     return ranked_docs
-    return ranked_docs
