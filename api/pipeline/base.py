@@ -9,9 +9,10 @@ from pipeline.query import ask, prepare_answer, stream_answer
 
 class RAGPipeline:
 
-    def __init__(self):
+    def __init__(self, asset_loader=None):
         self.embedding_model = get_embedding_model()
         self.chat_model = get_chat_model()
+        self.asset_loader = asset_loader
 
     # ── Ingestion ─────────────────────────────────────────────────────────────
 
@@ -28,10 +29,21 @@ class RAGPipeline:
     # ── Query / Answer ────────────────────────────────────────────────────────
 
     def ask(self, query, notebook_id):
-        return ask(self.chat_model, self.embedding_model, query, notebook_id)
+        return ask(
+            self.chat_model,
+            self.embedding_model,
+            query,
+            notebook_id,
+            asset_loader=self.asset_loader,
+        )
 
     def prepare_answer(self, query, notebook_id):
-        return prepare_answer(self.embedding_model, query, notebook_id)
+        return prepare_answer(
+            self.embedding_model,
+            query,
+            notebook_id,
+            asset_loader=self.asset_loader,
+        )
 
     def stream_answer(self, prompt):
         return stream_answer(self.chat_model, prompt)

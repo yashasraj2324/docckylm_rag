@@ -10,6 +10,7 @@ Handles:
 """
 
 import base64
+import os
 
 from retrieval.reranker import rerank_documents
 from vectorstore.qdrant_db import (
@@ -40,6 +41,15 @@ SYSTEM_PROMPT = """You are an academic study assistant creating concise, well-fo
 # Maximum number of prior messages to include as conversation context.
 # Keeps the prompt within model limits while enabling multi-turn follow-ups.
 MAX_HISTORY_MESSAGES = 10
+
+
+def _visual_retrieval_enabled():
+    return os.getenv("ENABLE_VISUAL_RETRIEVAL", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _format_citation(doc):
@@ -119,10 +129,11 @@ def prepare_answer(
     )
 
     docs = retriever.invoke(query)
-    try:
-        docs.extend(search_assets(query, notebook_id))
-    except Exception as error:
-        print(f"[query] Visual retrieval skipped: {error}")
+    if _visual_retrieval_enabled():
+        try:
+            docs.extend(search_assets(query, notebook_id))
+        except Exception as error:
+            print(f"[query] Visual retrieval skipped: {error}")
 
     reranked_docs = rerank_documents(query, docs)
 
@@ -190,10 +201,21 @@ Answer:"""
     return prompt, citations, context, True
 
 
-def ask(chat_model, embedding_model, query, notebook_id, history=None):
+def ask(
+    chat_model,
+    embedding_model,
+    query,
+    notebook_id,
+    history=None,
+    asset_loader=None,
+):
     """Non-streaming query — returns the full answer and citations."""
     prompt, citations, _context, _success = prepare_answer(
-        embedding_model, query, notebook_id, history=history
+        embedding_model,
+        query,
+        notebook_id,
+        history=history,
+        asset_loader=asset_loader,
     )
 
     response = chat_model.invoke(prompt)

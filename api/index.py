@@ -32,7 +32,10 @@ from pipeline.naming import generate_notebook_title
 from pipeline.query import prepare_answer, stream_answer
 from ingestion.extractor import load_asset
 from vectorstore import qdrant_db
-from vectorstore.visual_qdrant import delete_by_source as delete_visual_by_source
+from vectorstore.visual_qdrant import (
+    delete_by_notebook as delete_visual_by_notebook,
+    delete_by_source as delete_visual_by_source,
+)
 from web.loader import fetch_search_results
 from cache.redis_client import (
     get_cached_response,
@@ -103,6 +106,10 @@ async def delete_notebook(notebook_id: str):
         qdrant_db.delete_by_notebook(notebook_id)
     except Exception as e:
         print(f"Warning: Failed to delete from Qdrant: {e}")
+    try:
+        delete_visual_by_notebook(notebook_id)
+    except Exception as e:
+        print(f"Warning: Failed to delete visual vectors from Qdrant: {e}")
 
     # 2. Delete from GridFS
     try:
@@ -184,7 +191,7 @@ async def add_source(notebook_id: str, file: UploadFile = File(...)):
     source_id = db.next_source_id()
 
     # 1. Upload to GridFS
-    gridfs_file_id = db.upload_pdf(
+    gridfs_file_id = db.upload_source(
         notebook_id, source_id, file_name, data, content_type
     )
 
@@ -349,6 +356,10 @@ async def retry_source(notebook_id: str, source_id: str):
         qdrant_db.delete_by_source(source_id)
     except Exception as e:
         print(f"Warning: Failed to clean up Qdrant vectors during retry: {e}")
+    try:
+        delete_visual_by_source(source_id)
+    except Exception as e:
+        print(f"Warning: Failed to clean up visual vectors during retry: {e}")
 
     db.update_source_status(source_id, "indexing")
 
@@ -403,11 +414,15 @@ async def get_asset(notebook_id: str, source_id: str, asset_id: str):
     )
     if not source or source.get("gridfs_file_id") in (None, "web", "search"):
         return JSONResponse(content={"error": "Asset not found"}, status_code=404)
-    asset = load_asset(
-        db.download_source_file(source["gridfs_file_id"]),
-        source["file_name"],
-        asset_id,
-    )
+    try:
+        asset = load_asset(
+            db.download_source_file(source["gridfs_file_id"]),
+            source["file_name"],
+            asset_id,
+        )
+    except Exception as error:
+        print(f"[assets] Asset not found for {asset_id}: {error}")
+        return JSONResponse(content={"error": "Asset not found"}, status_code=404)
     return Response(content=asset.data, media_type=asset.media_type)
 
 

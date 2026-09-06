@@ -41,7 +41,13 @@ def upsert_assets(chunks, notebook_id, source_id):
     for chunk in chunks:
         if not chunk.asset or chunk.modality != "image":
             continue
-        vector = embed_asset(chunk.asset)
+        try:
+            vector = embed_asset(chunk.asset)
+        except Exception as error:
+            print(
+                f"[visual-index] Asset skipped for {chunk.asset.asset_id}: {error}"
+            )
+            continue
         _ensure_collection(len(vector))
         payload = {
             "page_content": chunk.content,
@@ -86,6 +92,8 @@ def search_assets(query, notebook_id, limit=6):
 
 
 def delete_by_source(source_id):
+    if not _get_client().collection_exists(_collection_name()):
+        return
     _get_client().delete(
         collection_name=_collection_name(),
         points_selector=models.FilterSelector(
@@ -97,5 +105,16 @@ def delete_by_source(source_id):
                     )
                 ]
             )
+        ),
+    )
+
+
+def delete_by_notebook(notebook_id):
+    if not _get_client().collection_exists(_collection_name()):
+        return
+    _get_client().delete(
+        collection_name=_collection_name(),
+        points_selector=models.FilterSelector(
+            filter=notebook_filter(notebook_id)
         ),
     )

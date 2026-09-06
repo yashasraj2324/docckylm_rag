@@ -64,7 +64,7 @@ def delete_source_row(db: MongoDatabase, source_id: str) -> None:
     db.sources.delete_one({"_id": ObjectId(source_id)})
 
 
-def upload_pdf(
+def upload_source(
     bucket: GridFSBucket,
     user_id: str,
     notebook_id: str,
