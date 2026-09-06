@@ -1,7 +1,7 @@
 /**
  * Frontend API client for AI Notebooks.
  *
- * All requests proxy through Next.js rewrites: /api/python/* → http://127.0.0.1:5328/*
+ * All requests proxy through Next.js rewrites: /api/python/* -> FastAPI.
  * In production, Vercel routes via vercel.json.
  */
 
@@ -48,6 +48,7 @@ export interface Podcast {
   id: string;
   notebook_id: string;
   gridfs_file_id: string;
+  audio_url?: string;
   format: string;
   language: string;
   created_at: string;
@@ -303,7 +304,12 @@ export async function generateAudioOverview(
 export async function getPodcasts(notebookId: string): Promise<Podcast[]> {
   const res = await fetch(`${API_BASE}/notebooks/${notebookId}/podcasts`);
   if (!res.ok) throw new Error("Failed to fetch podcasts");
-  return res.json();
+  const podcasts = (await res.json()) as Podcast[];
+  return podcasts.map((podcast) => ({
+    ...podcast,
+    audio_url:
+      podcast.audio_url || getAudioUrl(podcast.gridfs_file_id),
+  }));
 }
 
 export async function savePodcast(
@@ -314,7 +320,17 @@ export async function savePodcast(
     method: "POST",
     body: formData,
   });
-  if (!res.ok) throw new Error("Failed to save podcast");
+  if (!res.ok) {
+    let detail = "Failed to save podcast";
+    try {
+      const body = await res.json();
+      detail = body.detail || body.error || detail;
+    } catch {
+      // Response was not JSON — fall back to status text
+      detail = res.statusText || detail;
+    }
+    throw new Error(detail);
+  }
   return res.json();
 }
 

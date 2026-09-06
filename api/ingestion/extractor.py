@@ -75,9 +75,11 @@ def _vision_model() -> tuple[ChatNVIDIA, str]:
     model_name = os.getenv(
         "NVIDIA_VISION_MODEL", "meta/llama-3.2-90b-vision-instruct"
     )
+    timeout = int(os.getenv("NVIDIA_VISION_TIMEOUT", "30"))
     return ChatNVIDIA(
         model=model_name,
         api_key=api_key,
+        timeout=timeout,
     ), model_name
 
 
@@ -145,11 +147,19 @@ def _extract_pdf_assets(file_path: str) -> list[Asset]:
                 for image_index, image in enumerate(images):
                     xref = image[0]
                     image_data = pdf.extract_image(xref)
+                    # Fallback to colorspace-based mime type if 'mime' key is missing
+                    media_type = image_data.get("mime") or {
+                        "RGB": "image/png",
+                        "RGBA": "image/png",
+                        "CMYK": "image/png",
+                        "GRAY": "image/png",
+                        "Grey": "image/png",
+                    }.get(image_data.get("colorspace", ""), "image/png")
                     assets.append(
                         Asset(
                             asset_id=f"page-{page_number}-image-{image_index + 1}",
                             modality="image",
-                            media_type=image_data["mime"],
+                            media_type=media_type,
                             data=image_data["image"],
                             page=page_number,
                         )

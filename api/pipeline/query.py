@@ -12,7 +12,10 @@ Handles:
 import base64
 import os
 
+import logfire
+
 from retrieval.reranker import rerank_documents
+
 from vectorstore.qdrant_db import (
     ensure_payload_indexes,
     get_vectorstore,
@@ -120,25 +123,31 @@ def prepare_answer(
     Returns:
         (prompt, citations, context, has_context) tuple.
     """
-    ensure_payload_indexes()
+    with logfire.span("rag.prepare_context", query=query, notebook_id=notebook_id):
+        ensure_payload_indexes()
 
-    vectorstore = get_vectorstore(embedding_model)
+        vectorstore = get_vectorstore(embedding_model)
 
-    retriever = vectorstore.as_retriever(
-        search_kwargs={"k": 12, "filter": notebook_filter(notebook_id)}
-    )
+        retriever = vectorstore.as_retriever(
+            search_kwargs={"k": 12, "filter": notebook_filter(notebook_id)}
+        )
 
-    docs = retriever.invoke(query)
-    if _visual_retrieval_enabled():
-        try:
-            docs.extend(search_assets(query, notebook_id))
-        except Exception as error:
-            print(f"[query] Visual retrieval skipped: {error}")
+        with logfire.span("rag.qdrant_retrieve", k=12):
+            docs = retriever.invoke(query)
 
-    reranked_docs = rerank_documents(query, docs)
+        if _visual_retrieval_enabled():
+            try:
+                with logfire.span("rag.visual_retrieve"):
+                    docs.extend(search_assets(query, notebook_id))
+            except Exception as error:
+                print(f"[query] Visual retrieval skipped: {error}")
 
-    if not reranked_docs:
-        return "", [], "", False
+        with logfire.span("rag.rerank", candidate_count=len(docs)):
+            reranked_docs = rerank_documents(query, docs)
+
+        if not reranked_docs:
+            return "", [], "", False
+
 
     context = "\n\n".join([doc.page_content for doc in reranked_docs])
 
@@ -210,22 +219,25 @@ def ask(
     asset_loader=None,
 ):
     """Non-streaming query — returns the full answer and citations."""
-    prompt, citations, _context, _success = prepare_answer(
-        embedding_model,
-        query,
-        notebook_id,
-        history=history,
-        asset_loader=asset_loader,
-    )
+    with logfire.span("rag.ask", query=query, notebook_id=notebook_id):
+        prompt, citations, _context, _success = prepare_answer(
+            embedding_model,
+            query,
+            notebook_id,
+            history=history,
+            asset_loader=asset_loader,
+        )
 
-    response = chat_model.invoke(prompt)
+        with logfire.span("rag.llm_invoke"):
+            response = chat_model.invoke(prompt)
 
-    return {"answer": response.content, "sources": citations}
+        return {"answer": response.content, "sources": citations}
 
 
 def stream_answer(chat_model, prompt):
     """Yield answer tokens as they arrive from the LLM."""
-    for chunk in chat_model.stream(prompt):
-        content = getattr(chunk, "content", "")
-        if content:
-            yield content
+    with logfire.span("rag.llm_stream"):
+        for chunk in chat_model.stream(prompt):
+            content = getattr(chunk, "content", "")
+            if content:
+                yield content

@@ -113,24 +113,35 @@ def source_filter(source_id):
     )
 
 
-def ensure_payload_indexes():
+def ensure_payload_indexes(vector_size=3072):
     global _PAYLOAD_INDEXES_READY
 
     if _PAYLOAD_INDEXES_READY:
         return
 
     client = _get_client()
-    uuid_index = models.UuidIndexParams(type=models.UuidIndexType.UUID)
+    if not client.collection_exists(COLLECTION_NAME):
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=models.VectorParams(
+                size=vector_size,
+                distance=models.Distance.COSINE,
+            ),
+        )
+
+    keyword_index = models.KeywordIndexParams(
+        type=models.KeywordIndexType.KEYWORD
+    )
 
     client.create_payload_index(
         collection_name=COLLECTION_NAME,
         field_name="metadata.notebook_id",
-        field_schema=uuid_index,
+        field_schema=keyword_index,
     )
     client.create_payload_index(
         collection_name=COLLECTION_NAME,
         field_name="metadata.source_id",
-        field_schema=uuid_index,
+        field_schema=keyword_index,
     )
 
     _PAYLOAD_INDEXES_READY = True

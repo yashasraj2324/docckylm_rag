@@ -3,6 +3,7 @@ uvicorn[standard]>=0.30,<1.0
 python-dotenv
 pymongo
 redis
+sarvamai
 langchain-qdrant
 qdrant-client
 langchain-nvidia-ai-endpoints
@@ -15,3 +16,8 @@ firecrawl-py
 langchain-pymupdf4llm
 pymupdf>=1.24
 rapidocr-onnxruntime>=1.4
+langchain-text-splitters
+python-pptx
+pydantic-evals[logfire]
+logfire[fastapi,pymongo,redis,httpx,requests]
+openinference-instrumentation-langchain
