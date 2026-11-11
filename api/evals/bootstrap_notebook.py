@@ -139,7 +139,9 @@ def run() -> dict:
             os.write(fd, data)
             os.close(fd)
 
-            def process(temp_path=temp_path, source_id=source_id):
+            # Bind `name` too: it is a loop variable, so a late-bound closure would
+            # index every PDF under the last file's name.
+            def process(temp_path=temp_path, source_id=source_id, name=name):
                 embedding_model = get_embedding_model()
                 process_file_source(db, embedding_model, temp_path, name, notebook_id, source_id)
 

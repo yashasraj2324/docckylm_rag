@@ -17,6 +17,7 @@ class EvalCase(BaseModel):
         "summarization",
         "multi-hop",
         "visual",
+        "adversarial",
     ]
     is_adversarial: bool = False
 
@@ -195,7 +196,7 @@ CASES: list[EvalCase] = [
         expected_answer_keywords=[],
         expected_source_files=[],
         expected_pages=None,
-        category="factual",
+        category="adversarial",
         is_adversarial=True,
     ),
     EvalCase(
@@ -204,7 +205,7 @@ CASES: list[EvalCase] = [
         expected_answer_keywords=[],
         expected_source_files=[],
         expected_pages=None,
-        category="summarization",
+        category="adversarial",
         is_adversarial=True,
     ),
     EvalCase(
@@ -213,7 +214,163 @@ CASES: list[EvalCase] = [
         expected_answer_keywords=[],
         expected_source_files=[],
         expected_pages=None,
-        category="multi-hop",
+        category="adversarial",
+        is_adversarial=True,
+    ),
+
+    # ----------------------------------------------- adversarial (added)
+    # Plain off-topic trivia.
+    EvalCase(
+        id="adversarial-speed-of-light",
+        query="What is the speed of light in a vacuum?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Plain off-topic trivia.
+    EvalCase(
+        id="adversarial-pride-and-prejudice",
+        query="Who wrote the novel Pride and Prejudice?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Plain off-topic trivia.
+    EvalCase(
+        id="adversarial-berlin-wall",
+        query="In which year did the Berlin Wall fall?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Plain off-topic trivia.
+    EvalCase(
+        id="adversarial-table-salt",
+        query="What is the chemical formula of table salt?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Tempting: real model/metric, but the paper has no Romanian results (verified absent).
+    EvalCase(
+        id="adversarial-transformer-romanian",
+        query="What BLEU score did the Transformer achieve on WMT 2016 English-to-Romanian translation?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Tempting: the ResNet paper reports FLOPs and depth but never a parameter count.
+    EvalCase(
+        id="adversarial-resnet152-parameters",
+        query="How many parameters, in millions, does ResNet-152 have?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Tempting: the ResNet paper gives no ImageNet wall-clock time; the Transformer paper's 3.5 days / 8 GPUs is a plausible wrong answer.
+    EvalCase(
+        id="adversarial-resnet-training-days",
+        query="How many days did it take to train ResNet-152 on ImageNet, and on how many GPUs?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Tempting: BERT postdates both papers and is not mentioned (verified absent).
+    EvalCase(
+        id="adversarial-bert-vs-transformer",
+        query="How does BERT-large compare to the Transformer on the tasks in this paper?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Tempting: the paper reports training cost in FLOPs/days, not emissions (carbon/energy absent).
+    EvalCase(
+        id="adversarial-transformer-carbon",
+        query="What was the carbon footprint of training the big Transformer model?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Tempting: ResNet is in the sources but no latency numbers or V100 appear (verified absent).
+    EvalCase(
+        id="adversarial-resnet50-latency",
+        query="What inference latency in milliseconds does ResNet-50 achieve on a V100 GPU?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Tempting: false premise mixing the two papers; ResNet has no attention heads.
+    EvalCase(
+        id="adversarial-resnet-attention-heads",
+        query="How many attention heads does each ResNet residual block use?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
+        is_adversarial=True,
+    ),
+    # Tempting: ViT is not in either paper (verified absent).
+    EvalCase(
+        id="adversarial-vit-in-transformer-paper",
+        query="What ImageNet accuracy does the Vision Transformer (ViT) obtain according to the Transformer paper?",
+        expected_answer_keywords=[],
+        expected_source_files=[],
+        expected_pages=None,
+        category="adversarial",
         is_adversarial=True,
     ),
 ]
+
+
+# =============================================================================
+# pydantic_evals Dataset
+# =============================================================================
+
+from pydantic_evals import Case, Dataset  # noqa: E402
+
+from evals.schemas import CaseInputs, CaseMetadata, RagOutput, SourceRef  # noqa: E402
+
+
+def _expected_sources(case: EvalCase) -> list[SourceRef]:
+    pages = case.expected_pages if case.expected_pages is not None else [None]
+    return [SourceRef(file=f, page=p) for f in case.expected_source_files for p in pages]
+
+
+def build_dataset(notebook_id: str) -> Dataset[CaseInputs, RagOutput, CaseMetadata]:
+    """Build the pydantic_evals Dataset (evaluators are attached by evals.run_evals)."""
+    return Dataset[CaseInputs, RagOutput, CaseMetadata](
+        name="ai-notebooks-rag",
+        cases=[
+            Case(
+                name=c.id,
+                inputs=CaseInputs(question=c.query, notebook_id=notebook_id),
+                metadata=CaseMetadata(
+                    category=c.category,
+                    expected_sources=_expected_sources(c),
+                    expected_keywords=c.expected_answer_keywords,
+                    is_adversarial=c.is_adversarial,
+                ),
+            )
+            for c in CASES
+        ],
+    )
