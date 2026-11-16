@@ -139,7 +139,9 @@ def run() -> dict:
             os.write(fd, data)
             os.close(fd)
 
-            def process(temp_path=temp_path, source_id=source_id):
+            # Bind `name` too: it is a loop variable, so a late-bound closure would
+            # index every PDF under the last file's name.
+            def process(temp_path=temp_path, source_id=source_id, name=name):
                 embedding_model = get_embedding_model()
                 process_file_source(db, embedding_model, temp_path, name, notebook_id, source_id)
 
@@ -151,8 +153,11 @@ def run() -> dict:
     pending = [s for s in new_sources if s.get("status") != "ready"]
 
     if pending:
-        print(f"[bootstrap] Waiting for {len(pending)} source(s) to finish indexing (max 5 min)...")
-        success = wait_for_sources(db, notebook_id, source_ids, timeout=300)
+        print(f"[bootstrap] Waiting for {len(pending)} source(s) to finish indexing (set EVAL_BOOTSTRAP_TIMEOUT to change the 300s default)...")
+        success = wait_for_sources(
+            db, notebook_id, source_ids,
+            timeout=float(os.getenv("EVAL_BOOTSTRAP_TIMEOUT", "300")),
+        )
         if success:
             print("[bootstrap] All sources are ready.")
         else:

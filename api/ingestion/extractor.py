@@ -137,6 +137,29 @@ def _image_asset(data: bytes, file_name: str, asset_id: str, page: int | None = 
     )
 
 
+_EXT_MEDIA_TYPES = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "bmp": "image/bmp",
+    "tif": "image/tiff",
+    "tiff": "image/tiff",
+}
+
+
+def _image_media_type(image_data: dict) -> str:
+    """Media type for a PyMuPDF ``extract_image`` result.
+
+    PyMuPDF reports the format as ``ext`` (no ``mime`` key), so derive it from that;
+    fall back to image/png, which PyMuPDF uses for re-encoded images.
+    """
+    if image_data.get("mime"):
+        return image_data["mime"]
+    return _EXT_MEDIA_TYPES.get(str(image_data.get("ext", "")).lower(), "image/png")
+
+
 def _extract_pdf_assets(file_path: str) -> list[Asset]:
     assets: list[Asset] = []
     with fitz.open(file_path) as pdf:
@@ -147,14 +170,7 @@ def _extract_pdf_assets(file_path: str) -> list[Asset]:
                 for image_index, image in enumerate(images):
                     xref = image[0]
                     image_data = pdf.extract_image(xref)
-                    # Fallback to colorspace-based mime type if 'mime' key is missing
-                    media_type = image_data.get("mime") or {
-                        "RGB": "image/png",
-                        "RGBA": "image/png",
-                        "CMYK": "image/png",
-                        "GRAY": "image/png",
-                        "Grey": "image/png",
-                    }.get(image_data.get("colorspace", ""), "image/png")
+                    media_type = _image_media_type(image_data)
                     assets.append(
                         Asset(
                             asset_id=f"page-{page_number}-image-{image_index + 1}",
@@ -275,7 +291,7 @@ def load_asset(source_data: bytes, file_name: str, asset_id: str) -> Asset:
         return Asset(
             asset_id,
             "image",
-            image_data["mime"],
+            _image_media_type(image_data),
             image_data["image"],
             page_number,
         )
