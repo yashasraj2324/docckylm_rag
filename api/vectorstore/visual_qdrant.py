@@ -8,11 +8,27 @@ from vectorstore.qdrant_db import _get_client, _qdrant_config, notebook_filter
 
 
 _collection_ready = False
+_indexes_ready = False
 _collection_lock = threading.Lock()
 
 
 def _collection_name():
     return f"{_qdrant_config()['collection_name']}_visual"
+
+
+def _ensure_payload_indexes():
+    """Filtering by notebook/source needs keyword payload indexes (like the text collection)."""
+    global _indexes_ready
+    if _indexes_ready:
+        return
+    client = _get_client()
+    name = _collection_name()
+    keyword_index = models.KeywordIndexParams(type=models.KeywordIndexType.KEYWORD)
+    for field in ("metadata.notebook_id", "metadata.source_id"):
+        client.create_payload_index(
+            collection_name=name, field_name=field, field_schema=keyword_index
+        )
+    _indexes_ready = True
 
 
 def _ensure_collection(vector_size: int):
@@ -32,10 +48,11 @@ def _ensure_collection(vector_size: int):
                     distance=models.Distance.COSINE,
                 ),
             )
+        _ensure_payload_indexes()
         _collection_ready = True
 
 
-def upsert_assets(chunks, notebook_id, source_id):
+def upsert_assets(chunks, notebook_id, source_id, file_name=None):
     client = _get_client()
     points = []
     for chunk in chunks:
@@ -53,6 +70,8 @@ def upsert_assets(chunks, notebook_id, source_id):
             "page_content": chunk.content,
             "metadata": {
                 **chunk.metadata,
+                # Without these, image citations render as "Unknown — Page N".
+                **({"file_name": file_name, "source": file_name} if file_name else {}),
                 "notebook_id": notebook_id,
                 "source_id": source_id,
                 "modality": "image",
@@ -72,13 +91,19 @@ def upsert_assets(chunks, notebook_id, source_id):
 def search_assets(query, notebook_id, limit=6):
     if not _get_client().collection_exists(_collection_name()):
         return []
+    _ensure_payload_indexes()
     vector = embed_query(query)
-    records = _get_client().search(
-        collection_name=_collection_name(),
-        query_vector=vector,
-        query_filter=notebook_filter(notebook_id),
-        limit=limit,
-        with_payload=True,
+    # qdrant-client >= 1.16 removed search(); query_points is its replacement.
+    records = (
+        _get_client()
+        .query_points(
+            collection_name=_collection_name(),
+            query=vector,
+            query_filter=notebook_filter(notebook_id),
+            limit=limit,
+            with_payload=True,
+        )
+        .points
     )
     from langchain_core.documents import Document
 
@@ -94,6 +119,7 @@ def search_assets(query, notebook_id, limit=6):
 def delete_by_source(source_id):
     if not _get_client().collection_exists(_collection_name()):
         return
+    _ensure_payload_indexes()
     _get_client().delete(
         collection_name=_collection_name(),
         points_selector=models.FilterSelector(
@@ -112,6 +138,7 @@ def delete_by_source(source_id):
 def delete_by_notebook(notebook_id):
     if not _get_client().collection_exists(_collection_name()):
         return
+    _ensure_payload_indexes()
     _get_client().delete(
         collection_name=_collection_name(),
         points_selector=models.FilterSelector(

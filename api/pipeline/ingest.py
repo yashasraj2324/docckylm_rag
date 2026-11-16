@@ -66,6 +66,8 @@ def ingest(embedding_model, file_path, original_file_name, notebook_id, source_i
 
         try:
             with logfire.span("rag.visual_upsert"):
-                upsert_assets(multimodal_chunks, notebook_id, source_id)
+                upsert_assets(
+                    multimodal_chunks, notebook_id, source_id, original_file_name
+                )
         except Exception as error:
             print(f"[ingest] Visual indexing skipped: {error}")
